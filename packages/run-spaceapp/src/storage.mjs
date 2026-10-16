@@ -84,7 +84,7 @@ async function registryLayers(image, arch, fetch) {
   return { layers: manifest.layers, diffIds: config.rootfs?.diff_ids };
 }
 
-export async function inspectStoragePlan({ root, config, existingConfig, resources, execute, operation, fetch = globalThis.fetch }) {
+export async function inspectStoragePlan({ root, config, existingConfig, resources, execute, operation, platform = process.platform, fetch = globalThis.fetch, inspectResources }) {
   const selectedEngine = (existingConfig?.engine ?? config?.engine) === "podman" ? "podman" : "docker";
   const dockerInfo = await captureProbe(execute, { command: selectedEngine, args: ["info", "--format", "{{json .}}"] });
   let engine = null;
@@ -138,15 +138,28 @@ export async function inspectStoragePlan({ root, config, existingConfig, resourc
   }
   // Linux can measure the container engine filesystem directly even on a fresh install.
   const engineRootDir = engine?.DockerRootDir ?? engine?.store?.graphRoot;
-  if (engineRootDir && process.platform === "linux") {
-    const { inspectSystemResources } = await import("./index.mjs");
-    try { dockerFreeDiskBytes = (await inspectSystemResources(engineRootDir)).freeDiskBytes; } catch {}
+  if (engineRootDir && platform === "linux") {
+    const inspect = inspectResources ?? (await import("./index.mjs")).inspectSystemResources;
+    try { dockerFreeDiskBytes = (await inspect(engineRootDir)).freeDiskBytes; } catch {}
+  }
+  let engineDiskBytes = engine?.store?.graphRootAllocated > 0 ? engine.store.graphRootAllocated : undefined;
+  if (engineRootDir && selectedEngine === "podman" && platform === "darwin") {
+    const free = await captureProbe(execute, { command: "podman", args: ["machine", "ssh", "df", "-Pk", engineRootDir] });
+    const match = free?.match(/^\S+\s+(\d+)\s+\d+\s+(\d+)\s+\d+%/m);
+    if (match) {
+      engineDiskBytes ??= Number(match[1]) * 1024;
+      dockerFreeDiskBytes = Number(match[2]) * 1024;
+    }
+  }
+  if (dockerFreeDiskBytes === null && engineDiskBytes > 0) {
+    dockerFreeDiskBytes = Math.max(0, engineDiskBytes - (engine?.store?.graphRootUsed ?? 0));
   }
   return { ...plan, ...(selectedEngine === "podman" ? { engine: "podman" } : {}), missingImages, sharedLayersEstimated, dockerFreeDiskBytes,
     resources: { ...resources,
       freeDiskBytes: dockerFreeDiskBytes === null ? resources.freeDiskBytes : Math.min(resources.freeDiskBytes, dockerFreeDiskBytes),
       engineCpuCount: engine?.NCPU ?? engine?.host?.cpus,
-      engineMemoryBytes: engine?.MemTotal ?? engine?.host?.memTotal
+      engineMemoryBytes: engine?.MemTotal ?? engine?.host?.memTotal,
+      ...(engineDiskBytes > 0 ? { engineDiskBytes } : {})
     } };
 }
 

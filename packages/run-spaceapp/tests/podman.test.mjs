@@ -449,7 +449,7 @@ test("ensurePodmanAvailable checks macOS podman machine and prints manual instal
   assert.match(podmanInstallInstructions("darwin", {}), /brew install podman docker-compose/);
 });
 
-test("inspectStoragePlan and installResourceChecks use podman, accept raw 64-hex image IDs, and report podman machine resize instructions", async () => {
+test("inspectStoragePlan and installResourceChecks use podman, accept raw 64-hex image IDs, and verify macOS podman machine CPU, memory, and disk capacity", async () => {
   const root = await mkdtemp(join(tmpdir(), "spaceapp-podman-storage-"));
   const commands = [];
   const rawHexId = "a".repeat(64);
@@ -463,10 +463,12 @@ test("inspectStoragePlan and installResourceChecks use podman, accept raw 64-hex
     totalMemoryBytes: 16 * 1024 ** 3,
     freeDiskBytes: 30 * 1024 ** 3
   };
+  // Case 1: Insufficient macOS Podman machine CPU, memory, and disk capacity
   const plan = await inspectStoragePlan({
     root,
     config,
     operation: "fresh",
+    platform: "darwin",
     resources: hostResources,
     execute: async (spec, io) => {
       commands.push(`${spec.command} ${spec.args.join(" ")}`);
@@ -484,6 +486,11 @@ test("inspectStoragePlan and installResourceChecks use podman, accept raw 64-hex
         }));
         return 0;
       }
+      if (spec.args[0] === "machine" && spec.args[1] === "ssh") {
+        // 200 MiB total, 100 MiB free (insufficient for 512 MiB fresh reserve)
+        io.stdout.write("Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vda4 204800 102400 102400 50% /var/lib/containers/storage\n");
+        return 0;
+      }
       if (spec.args[0] === "image" && spec.args[1] === "inspect") {
         io.stdout.write(`${rawHexId}\n`);
         return 0;
@@ -494,8 +501,11 @@ test("inspectStoragePlan and installResourceChecks use podman, accept raw 64-hex
 
   assert.equal(plan.engine, "podman");
   assert.ok(commands.every((cmd) => cmd.startsWith("podman ")));
+  assert.ok(commands.includes("podman machine ssh df -Pk /var/lib/containers/storage"));
   assert.equal(plan.missingImages.length, 0);
   assert.equal(plan.resources.engineCpuCount, 2);
+  assert.equal(plan.resources.engineDiskBytes, 200 * 1024 ** 2);
+  assert.equal(plan.dockerFreeDiskBytes, 100 * 1024 ** 2);
 
   const checks = installResourceChecks(plan.resources, "small", {
     operation: "fresh",
@@ -505,14 +515,62 @@ test("inspectStoragePlan and installResourceChecks use podman, accept raw 64-hex
 
   const podmanMemCheck = checks.find((check) => check.name === "Podman memory");
   const podmanCpuCheck = checks.find((check) => check.name === "Podman CPU");
+  const podmanDiskCheck = checks.find((check) => check.name === "Podman disk");
   assert.ok(podmanMemCheck);
   assert.equal(podmanMemCheck.ok, false);
   assert.match(podmanMemCheck.detail, /podman machine stop && podman machine set --cpus 4 --memory 7168 --disk-size [0-9]+ && podman machine start/);
   assert.ok(podmanCpuCheck);
   assert.equal(podmanCpuCheck.ok, false);
+  assert.ok(podmanDiskCheck);
+  assert.equal(podmanDiskCheck.ok, false);
+  assert.match(podmanDiskCheck.detail, /podman machine stop && podman machine set --cpus 4 --memory 7168 --disk-size [0-9]+ && podman machine start/);
 
   const sChecks = storageChecks(plan, hostResources);
-  assert.ok(sChecks.some((check) => check.name === "Podman storage"));
+  const podmanStorageCheck = sChecks.find((check) => check.name === "Podman storage");
+  assert.ok(podmanStorageCheck);
+  assert.equal(podmanStorageCheck.ok, false);
+
+  // Case 2: Sufficient macOS Podman machine CPU, memory, and disk capacity
+  const sufficientPlan = await inspectStoragePlan({
+    root,
+    config,
+    operation: "fresh",
+    platform: "darwin",
+    resources: hostResources,
+    execute: async (spec, io) => {
+      if (spec.args[0] === "info") {
+        io.stdout.write(JSON.stringify({
+          host: {
+            arch: "arm64",
+            cpus: 4,
+            memTotal: 8 * 1024 ** 3
+          },
+          store: {
+            graphDriverName: "overlay",
+            graphRoot: "/var/lib/containers/storage"
+          }
+        }));
+        return 0;
+      }
+      if (spec.args[0] === "machine" && spec.args[1] === "ssh") {
+        // 30 GiB total, 25 GiB free
+        io.stdout.write("Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vda4 31457280 5242880 26214400 17% /var/lib/containers/storage\n");
+        return 0;
+      }
+      if (spec.args[0] === "image" && spec.args[1] === "inspect") {
+        io.stdout.write(`${rawHexId}\n`);
+        return 0;
+      }
+      return 0;
+    }
+  });
+  const sufficientChecks = installResourceChecks(sufficientPlan.resources, "small", {
+    operation: "fresh",
+    engine: "podman",
+    requiredDiskBytes: sufficientPlan.requiredDiskBytes
+  });
+  assert.equal(sufficientChecks.every((check) => check.ok), true);
+  assert.equal(storageChecks(sufficientPlan, hostResources).every((check) => check.ok), true);
 });
 
 test("CLI installs with --engine podman, dispatches podman across lifecycle commands, blocks engine switching, and reports podman in doctor and support-bundle", async () => {
