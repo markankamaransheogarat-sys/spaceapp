@@ -358,6 +358,9 @@ export function registerMemoryGraphRoutes(
 ): void {
   app.get("/api/admin/memory/graph/overview", async (request, reply) => {
     requireMemoryGraph(options.config);
+    if (request.user?.role !== "ADMIN" && request.user?.role !== "OPERATOR") {
+      return reply.code(403).send({ error: { code: "FORBIDDEN", message: "Admin role is required." } });
+    }
     const query = listMemoryGraphOverviewQuerySchema.parse(request.query);
     const snapshotData = query.month
       ? await (options.service.getArchiveSnapshotState?.() ?? options.service.getArchiveSnapshot().then(snapshot => ({ snapshot, isStale: false })))

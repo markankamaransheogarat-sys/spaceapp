@@ -29,6 +29,7 @@ export interface MemoryLayoutState3D {
   linkA: Int32Array; linkB: Int32Array; linkLength: Float64Array; linkStrength: Float64Array;
   cell: Int32Array; // scratch: cell index of every node for the current step
   cellStart: Int32Array; // scratch: counting-sort offsets, grown on demand
+  cellCursor: Int32Array; // scratch: placement cursor per cell
   members: Int32Array; // scratch: node indices grouped by cell, ascending within a cell
 }
 
@@ -72,7 +73,7 @@ export function createLayoutState(nodes: MemoryGraphNode[], edges: MemoryGraphEd
     isSource: Uint8Array.from(ordered, node => node.type === "SOURCE" ? 1 : 0),
     linkA: Int32Array.from(linkA), linkB: Int32Array.from(linkB),
     linkLength: Float64Array.from(linkLength), linkStrength: Float64Array.from(linkStrength),
-    cell: new Int32Array(count), cellStart: new Int32Array(0), members: new Int32Array(count)
+    cell: new Int32Array(count), cellStart: new Int32Array(0), cellCursor: new Int32Array(0), members: new Int32Array(count)
   };
 }
 
@@ -107,7 +108,9 @@ export function stepLayout(state: MemoryLayoutState3D, steps: number): boolean {
     }
     for (let c = 0; c < cells; c++) start[c + 1]! += start[c]!;
     // Placement cursor per cell; ascending i keeps members ascending within each cell.
-    const cursor = start.slice(0, cells);
+    if (state.cellCursor.length < cells) state.cellCursor = new Int32Array(cells);
+    state.cellCursor.set(start.subarray(0, cells));
+    const cursor = state.cellCursor;
     for (let i = 0; i < count; i++) members[cursor[cell[i]!]!++] = i;
     for (let i = 0; i < count; i++) {
       const px = x[i]!, py = y[i]!, pz = z[i]!;

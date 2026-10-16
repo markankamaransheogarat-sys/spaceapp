@@ -227,7 +227,12 @@ export function MemoryWorkspace({ shellMode, onClose, initialMode = "calendar" }
                   <DesktopMemoryGraph nodes={atlas.nodes} edges={atlas.edges} displayMode="SEMANTIC" relationMode="RELATIONS" selectedNodeId={selectedNodeId} onSelectNode={selectNode} loading={loading || layoutPending} error={shownError} totalNodes={graph?.data.totalMatchingNodes ?? 0} totalEdges={graph?.data.totalMatchingEdges ?? 0} truncated={graph?.data.truncated ?? false} atlasPositions={atlasPositions} showTitles={showTitles} />
                 </Suspense>
               </MemoryGraphErrorBoundary></div> : null}
-              {view3D ? <MemoryGraph3D stream={stream} scene={scene} showTitles={showTitles} selectedNodeId={selectedNodeId} onSelectNode={selectNode} loading={loading || layoutPending} resetToken={reset3D} /> : null}
+              {view3D ? (
+                <>
+                  {shownError ? <div className="memory-workspace-error" role="alert"><AlertTriangle aria-hidden="true" /><span>{shownError}</span></div> : null}
+                  <MemoryGraph3D stream={stream} scene={scene} showTitles={showTitles} selectedNodeId={selectedNodeId} onSelectNode={selectNode} loading={loading || layoutPending} resetToken={reset3D} />
+                </>
+              ) : null}
             </div>
             {!selectedNodeId && displayGroups.length > 0 ? <aside className="memory-atlas-topics" aria-label="Map topics">
               <span className="memory-atlas-eyebrow">COLOR GUIDE</span>

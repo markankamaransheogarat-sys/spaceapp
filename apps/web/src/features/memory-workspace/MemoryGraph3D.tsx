@@ -37,13 +37,19 @@ export function MemoryGraph3D({ stream, scene, showTitles, selectedNodeId, onSel
   const volume = useMemo(() => stream?.x ? volumeRatioFromArrays(stream.x, stream.y!, stream.z!, scene?.count ?? 0).toFixed(4) : (0).toFixed(4),
     [stream, scene, tick]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const fallback = useMemo(() => {
-    if (mode !== "canvas2d" || !scene || !stream?.x) return null;
+  const cappedFallback = useMemo(() => {
+    if (mode !== "canvas2d" || !scene) return null;
     const capped = capSceneForFallback(scene);
     const positions = new Map<string, MemoryAtlasPosition>(capped.indices.map(index => [scene.ids[index]!, { x: 0, y: 0, hub: false, groupId: "", color: `#${[0, 1, 2].map(c => scene.rgb[index * 3 + c]!.toString(16).padStart(2, "0")).join("")}` }]));
-    const coordinates = new Map<string, MemoryPoint3D>(capped.indices.map(index => [scene.ids[index]!, { x: stream.x![index]!, y: stream.y![index]!, z: stream.z![index]! }]));
+    return { capped, positions };
+  }, [mode, scene]);
+
+  const fallback = useMemo(() => {
+    if (!cappedFallback || !stream?.x) return null;
+    const { capped, positions } = cappedFallback;
+    const coordinates = new Map<string, MemoryPoint3D>(capped.indices.map(index => [scene!.ids[index]!, { x: stream.x![index]!, y: stream.y![index]!, z: stream.z![index]! }]));
     return { nodes: capped.nodes, edges: capped.edges, positions, coordinates };
-  }, [mode, scene, stream, tick]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cappedFallback, stream, tick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return <div className="memory-3d-surface" data-renderer={mode}>
     {supported ? <MemoryGraph3DGL stream={stream} scene={scene} showTitles={showTitles} selectedNodeId={selectedNodeId} onSelectNode={onSelectNode} loading={loading} resetToken={resetToken} volume={volume} hidden={mode !== "webgl"} cameraRef={cameraRef} onStatus={onStatus} /> : null}

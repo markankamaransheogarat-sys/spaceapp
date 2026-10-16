@@ -474,9 +474,17 @@ describe("Memory graph API", () => {
     });
 
     it("still requires authentication at a large limit", async () => {
-      // The route has no role check beyond the session (a USER session is served today); only 401 is asserted.
       const app = await memoryGraphApp(true, new InMemorySpaceStore(), false, undefined, { graphSnapshot: largeSnapshot(300) });
       expect((await get(app, "?limit=50000", {})).statusCode).toBe(401);
+      await app.close();
+    });
+
+    it("restricts overview access to admin and operator roles", async () => {
+      const userToken = signSession({ id: "user:regular", email: "user@space.test", role: "USER" }, sessionSecret);
+      const app = await memoryGraphApp(true, new InMemorySpaceStore(), false, undefined, { graphSnapshot: largeSnapshot(300) });
+      const response = await get(app, "", { cookie: `space_session=${userToken}` });
+      expect(response.statusCode).toBe(403);
+      expect(response.json().error.code).toBe("FORBIDDEN");
       await app.close();
     });
 

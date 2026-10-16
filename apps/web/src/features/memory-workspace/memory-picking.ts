@@ -17,7 +17,7 @@ const CELL = 32;
  */
 export class ScreenPicker {
   private sx = new Float32Array(0); private sy = new Float32Array(0); private depth = new Float32Array(0); private reach = new Float32Array(0);
-  private cellOf = new Int32Array(0); private items = new Int32Array(0); private start = new Int32Array(0);
+  private cellOf = new Int32Array(0); private items = new Int32Array(0); private start = new Int32Array(0); private cursor = new Int32Array(0);
   private cols = 0; private rows = 0; private range = 1;
   private tmp = new Float64Array(4);
 
@@ -46,7 +46,9 @@ export class ScreenPicker {
       cellOf[i] = cell; start[cell + 1]!++;
     }
     for (let c = 0; c < cells; c++) start[c + 1]! += start[c]!;
-    const cursor = start.slice(0, cells);
+    if (this.cursor.length < cells) this.cursor = new Int32Array(cells);
+    this.cursor.set(this.start.subarray(0, cells));
+    const cursor = this.cursor;
     for (let i = 0; i < count; i++) if (cellOf[i]! >= 0) this.items[cursor[cellOf[i]!]!++] = i;
   }
 
