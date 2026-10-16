@@ -1481,14 +1481,51 @@ export class DemoStore {
         });
       }
       case "memoryGraphOverview": {
-        const limit = (args[0] as DemoMemoryGraphQuery | undefined)?.limit;
+        const query = (args[0] ?? {}) as DemoMemoryGraphQuery;
+        const limit = query.limit;
         if (limit !== undefined) {
           // An explicit limit asks for the deterministic synthetic archive of exactly that many nodes.
           const synthetic = this.syntheticGraph(limit);
+          const needle = query.q?.trim().toLowerCase();
+          const expectedMonthPath = query.month && query.month !== "all"
+            ? `space_memory_${query.month}.md`
+            : null;
+          let nodes = synthetic.nodes;
+          if (needle || query.nodeType || query.sourcePath || expectedMonthPath) {
+            nodes = nodes.filter((node) => {
+              return (!needle || [node.label, node.sourcePath].some((value) => value?.toLowerCase().includes(needle))) &&
+                (!query.nodeType || node.type === query.nodeType) &&
+                (!query.sourcePath || node.sourcePath === query.sourcePath) &&
+                (!expectedMonthPath || node.sourcePath?.split("/").at(-1) === expectedMonthPath);
+            });
+          }
+          const visibleIds = new Set(nodes.map((node) => node.id));
+          const edges = synthetic.edges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target));
           const { nodes: _nodes, edges: _edges, summary: _summary, ...rest } = this.memoryGraph();
-          return Promise.resolve({ data: { ...rest, summary: synthetic.summary, months: synthetic.months, nodes: synthetic.nodes, edges: synthetic.edges, totalMatchingNodes: synthetic.nodes.length, totalMatchingEdges: synthetic.edges.length, truncated: false } });
+          return Promise.resolve({
+            data: {
+              ...rest,
+              filters: {
+                q: query.q ?? null,
+                nodeType: query.nodeType ?? null,
+                scope: query.scope ?? null,
+                roomId: query.roomId ?? null,
+                sourcePath: query.sourcePath ?? null,
+                lifecycleStatus: query.lifecycleStatus ?? null,
+                relationMode: query.relationMode ?? "RELATIONS",
+                month: query.month ?? null
+              },
+              summary: synthetic.summary,
+              months: synthetic.months,
+              nodes,
+              edges,
+              totalMatchingNodes: nodes.length,
+              totalMatchingEdges: edges.length,
+              truncated: false
+            }
+          });
         }
-        const graph = this.memoryGraph((args[0] ?? {}) as DemoMemoryGraphQuery);
+        const graph = this.memoryGraph(query);
         return Promise.resolve({ data: { ...graph, totalMatchingNodes: graph.nodes.length, totalMatchingEdges: graph.edges.length, truncated: false } });
       }
       case "memoryCalendar": {

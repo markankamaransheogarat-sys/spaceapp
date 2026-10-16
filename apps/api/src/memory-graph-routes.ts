@@ -367,9 +367,19 @@ export function registerMemoryGraphRoutes(
       : await options.service.getSnapshot();
     const { isStale } = snapshotData;
     const snapshot = await options.service.withSourceTopology?.(snapshotData.snapshot) ?? snapshotData.snapshot;
-    // A different limit yields a different body, so it must not share a validator; the default keeps the plain hash.
+    // A different limit or filter yields a different body, so it must not share a validator; default overview keeps the plain hash.
     const revision = snapshot.revisionHash ?? snapshot.sourceHash;
-    if (setSnapshotEtag(request, reply, query.limit === MEMORY_GRAPH_OVERVIEW_DEFAULT_LIMIT ? revision : `${revision}-limit-${query.limit}`)) return reply.code(304).send();
+    const filterTokens: string[] = [];
+    if (query.limit !== MEMORY_GRAPH_OVERVIEW_DEFAULT_LIMIT) filterTokens.push(`limit:${query.limit}`);
+    if (query.relationMode !== "RELATIONS") filterTokens.push(`mode:${query.relationMode}`);
+    if (query.q) filterTokens.push(`q:${encodeURIComponent(query.q.trim())}`);
+    if (query.nodeType) filterTokens.push(`type:${query.nodeType}`);
+    if (query.sourcePath) filterTokens.push(`path:${encodeURIComponent(query.sourcePath)}`);
+    if (query.scope) filterTokens.push(`scope:${query.scope}`);
+    if (query.roomId) filterTokens.push(`room:${query.roomId}`);
+    if (query.lifecycleStatus) filterTokens.push(`status:${query.lifecycleStatus}`);
+    const overviewValidator = filterTokens.length === 0 ? revision : `${revision}-${filterTokens.join("-")}`;
+    if (setSnapshotEtag(request, reply, overviewValidator)) return reply.code(304).send();
     const availableMonths = await options.service.listAvailableMonths();
 
     const anchors = filterNodes(snapshot, query).sort((left, right) => left.id.localeCompare(right.id));

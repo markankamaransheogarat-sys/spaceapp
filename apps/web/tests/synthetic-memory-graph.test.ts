@@ -25,6 +25,7 @@ describe("synthetic memory graph", () => {
     const sources = graph.nodes.filter(node => node.type === "SOURCE");
     expect(sources.filter(node => node.label === "space.md")).toHaveLength(1);
     expect(new Set(sources.map(node => node.sourcePath)).size).toBe(sources.length);
+    expect(graph.summary.sourceCount).toBe(sources.length);
     expect(graph.summary.sourceCount).toBeLessThanOrEqual(24);
     expect(graph.nodes.every(node => node.id.includes(`synthetic-${size}-`))).toBe(true);
     expect(graph.nodes.filter(node => node.type === "MEMORY").length).toBe(graph.summary.recordCount);

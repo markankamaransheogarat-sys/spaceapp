@@ -241,7 +241,7 @@ export function MemoryWorkspace({ shellMode, onClose, initialMode = "calendar" }
             </aside> : null}
             {!selectedNodeId ? <aside className="memory-atlas-insight"><span className="memory-atlas-eyebrow">THE BIGGER PICTURE</span><strong>{stats.semanticCount.toLocaleString()}</strong><p>semantic connections</p><small>Explore the links between your memories.</small><div className="memory-atlas-spectrum" /></aside> : null}
             {graph?.data.isStale ? <div className="memory-atlas-stale" role="status"><AlertTriangle aria-hidden="true" /> Snapshot awaiting refresh</div> : null}
-            {query && !loading && !shownError ? <div className="memory-atlas-search-status" role="status">{stats.nodeCount ? `${stats.nodeCount.toLocaleString()} matching nodes` : "No memories found. Try another search."}</div> : null}
+            {query && !loading && !shownError && (!view3D || scene) ? <div className="memory-atlas-search-status" role="status">{stats.nodeCount ? `${stats.nodeCount.toLocaleString()} matching nodes` : "No memories found. Try another search."}</div> : null}
           </>
         )}
         {selectedNodeId ? <div className="memory-atlas-detail">

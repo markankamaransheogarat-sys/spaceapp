@@ -533,6 +533,18 @@ describe("Memory graph API", () => {
       expect(crossed.json().data.nodes).toHaveLength(3000);
       await app.close();
     });
+
+    it("uses distinct ETags when response-changing query parameters differ", async () => {
+      const app = await memoryGraphApp(true, new InMemorySpaceStore(), false, undefined, { graphSnapshot: largeSnapshot(3000) });
+      const alpha = await get(app, "?limit=3000&q=alpha");
+      const beta = await get(app, "?limit=3000&q=beta");
+      const clustered = await get(app, "?limit=3000&relationMode=CLUSTERED");
+      expect(alpha.headers.etag).not.toBe(beta.headers.etag);
+      expect(alpha.headers.etag).not.toBe(clustered.headers.etag);
+      expect((await get(app, "?limit=3000&q=alpha", { cookie, "if-none-match": alpha.headers.etag as string })).statusCode).toBe(304);
+      expect((await get(app, "?limit=3000&q=beta", { cookie, "if-none-match": alpha.headers.etag as string })).statusCode).toBe(200);
+      await app.close();
+    });
   });
 
   it("serves the all-months archive and single-month filtering through the month query param", async () => {

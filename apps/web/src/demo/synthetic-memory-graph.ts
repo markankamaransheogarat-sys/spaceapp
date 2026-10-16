@@ -2,7 +2,7 @@ import type { MemoryGraphEdge, MemoryGraphNode, MemoryGraphNodeDetail, MemoryGra
 
 /** Sizes offered by the 3D view; the generator itself accepts any count of at least 200. */
 export const SYNTHETIC_MEMORY_SIZES = [2000, 10_000, 50_000] as const;
-const MAX_SYNTHETIC_SOURCES = 24; // memoryGraphSummarySchema caps sourceCount at 24
+const MAX_MONTHLY_SOURCES = 23; // 23 monthly sources + 1 core source = 24 sources, conforming to memoryGraphSummarySchema max 24
 const EDGES_PER_NODE = 3;
 
 export function mulberry32(seed: number): () => number {
@@ -31,17 +31,17 @@ const monthKey = (offset: number) => {
 
 /**
  * Deterministic synthetic archive of exactly `size` nodes and 3 * `size` edges: one core source,
- * one source per month (at most 24), topics, and memories. Ids embed the size so graphs of
+ * one source per month (at most 23), topics, and memories. Ids embed the size so graphs of
  * different sizes never share node details.
  */
 export function generateSyntheticMemoryGraph(size: number): SyntheticMemoryGraph {
   if (!Number.isInteger(size) || size < 200) throw new Error("A synthetic memory graph needs an integer size of at least 200.");
   const random = mulberry32(0x5eed ^ size);
   const tag = `synthetic-${size}`;
-  const sourceCount = Math.min(MAX_SYNTHETIC_SOURCES, Math.max(3, Math.floor(size / 600)));
+  const monthlySourceCount = Math.min(MAX_MONTHLY_SOURCES, Math.max(2, Math.floor(size / 600)));
   const topicCount = Math.min(200, Math.max(8, Math.round(size / 250)));
-  const memoryCount = size - 1 - sourceCount - topicCount;
-  const months = Array.from({ length: sourceCount }, (_, index) => monthKey(index)).reverse();
+  const memoryCount = size - 1 - monthlySourceCount - topicCount;
+  const months = Array.from({ length: monthlySourceCount }, (_, index) => monthKey(index)).reverse();
   const nodes: MemoryGraphNode[] = [];
   const edges: MemoryGraphEdge[] = [];
   const pad = (value: number) => String(value).padStart(6, "0");
@@ -62,7 +62,7 @@ export function generateSyntheticMemoryGraph(size: number): SyntheticMemoryGraph
   });
   const memoryIds: string[] = [], memorySource: number[] = [];
   for (let index = 0; index < memoryCount; index++) {
-    const id = `memory:${tag}-${pad(index)}`, source = Math.floor(index * sourceCount / memoryCount);
+    const id = `memory:${tag}-${pad(index)}`, source = Math.floor(index * monthlySourceCount / memoryCount);
     memoryIds.push(id); memorySource.push(source);
     nodes.push({ id, type: "MEMORY", label: `Synthetic memory ${index + 1}`, sourcePath: sourcePaths[source]!, recordId: id });
     edges.push({ id: `edge:${tag}-contains-${pad(index)}`, type: "CONTAINS", source: sourceIds[source]!, target: id });
@@ -84,7 +84,7 @@ export function generateSyntheticMemoryGraph(size: number): SyntheticMemoryGraph
   }
   return {
     size, nodes, edges, months,
-    summary: { sourceCount, recordCount: memoryCount, nodeCount: nodes.length, edgeCount: edges.length, issueCount: 0 }
+    summary: { sourceCount: 1 + monthlySourceCount, recordCount: memoryCount, nodeCount: nodes.length, edgeCount: edges.length, issueCount: 0 }
   };
 }
 
