@@ -509,6 +509,13 @@ export async function addWorkspace(config, hostPath, { readOnly = false } = {}) 
     throw new Error("Workspace path must be absolute.");
   }
   const absolutePath = resolve(hostPath);
+  if (config.engine === "podman") {
+    const home = homedir();
+    const protectedDirs = new Set(["/", home, "/root", "/home", "/etc", "/usr", "/var", "/boot", "/sys", "/proc", "/dev"]);
+    if (protectedDirs.has(absolutePath)) {
+      throw new Error(`Workspace path "${absolutePath}" cannot be added under Podman (protected system or home directory).`);
+    }
+  }
   const pathStat = await stat(absolutePath);
   if (!pathStat.isDirectory()) {
     throw new Error("Workspace path must be an existing directory.");

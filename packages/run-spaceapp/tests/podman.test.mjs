@@ -222,6 +222,11 @@ test("renderWorkspaceCompose emits keep-id userns_mode and SELinux z label only 
   assert.match(populatedPodman, /bind:\n {10}selinux: z/);
   assert.match(populatedPodman, /read_only: false/);
 
+  await assert.rejects(
+    () => addWorkspace(basePodman, "/", { readOnly: false }),
+    /protected system or home directory/i
+  );
+
   const baseDocker = createDefaultConfig({
     version: RUNTIME_VERSION,
     profile: "small",
