@@ -300,15 +300,56 @@ async function smokeBrowser(image) {
       try {
         const client = net.createConnection({ path: socketPath });
         await new Promise((resolve, reject) => {
-          client.once("connect", () => {
-            hostReady = true;
+          let buffer = Buffer.alloc(0);
+          const timeout = setTimeout(() => {
             client.destroy();
-            resolve();
+            reject(new Error("Timeout waiting for Browser Host health response"));
+          }, 5000);
+
+          client.once("connect", () => {
+            client.write(encodeLengthPrefixedJson({
+              kind: "request",
+              requestId: `smoke-browser-health-${i}`,
+              method: "health",
+              params: {}
+            }));
           });
-          client.once("error", reject);
+
+          client.once("error", (error) => {
+            clearTimeout(timeout);
+            reject(error);
+          });
+
+          client.on("data", (chunk) => {
+            buffer = Buffer.concat([buffer, chunk]);
+            if (buffer.length < 4) return;
+            const jsonLen = buffer.readUInt32BE(0);
+            if (jsonLen === 0 || buffer.length < 4 + jsonLen) return;
+            try {
+              const response = JSON.parse(buffer.subarray(4, 4 + jsonLen).toString("utf8"));
+              const health = response?.result;
+              if (
+                response?.kind !== "response" ||
+                response.ok !== true ||
+                health?.status?.enabled !== true ||
+                health.capacity?.maxSessions < 8 ||
+                health.capacity?.maxLiveWorkloads < 4
+              ) {
+                throw new Error(`Browser Host health response is not ready: ${JSON.stringify(response)}`);
+              }
+              clearTimeout(timeout);
+              hostReady = true;
+              client.destroy();
+              resolve();
+            } catch (error) {
+              clearTimeout(timeout);
+              client.destroy();
+              reject(error);
+            }
+          });
         });
         if (hostReady) {
-          console.log("[smoke-check:browser] Browser Host socket accepted connection.");
+          console.log("[smoke-check:browser] Browser Host socket accepted connection and confirmed health readiness.");
           break;
         }
       } catch {}
