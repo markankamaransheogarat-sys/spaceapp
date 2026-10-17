@@ -180,8 +180,13 @@ export async function observeActivityExecution<T>(
     : null;
   const correlation = activityCorrelation(args);
   const headerParent = parseTraceparent(dependencies.headerTraceparent);
-  if (headerParent && !correlation.w3cTraceId) {
-    correlation.w3cTraceId = headerParent.traceId;
+  if (headerParent) {
+    if (!correlation.w3cTraceId) {
+      correlation.w3cTraceId = headerParent.traceId;
+    }
+    if (!correlation.traceId) {
+      correlation.traceId = headerParent.traceId;
+    }
   }
   const base: Record<string, WorkerLogValue> = {
     activityType,
@@ -229,8 +234,10 @@ export async function observeActivityExecution<T>(
         const validWorkflowRunSpanId = /^[0-9a-f]{16,}$/.test(runIdHex) ? runIdHex.slice(0, 16) : null;
         const validWorkflowRunTraceId = /^[0-9a-f]{32,}$/.test(runIdHex) ? runIdHex.slice(0, 32) : null;
 
-        const traceId = headerParent?.traceId ?? argParent?.traceId ?? validWorkflowRunTraceId;
-        const parentSpanId = headerParent?.parentId ?? validWorkflowRunSpanId ?? argParent?.parentId ?? null;
+        const traceId = headerParent?.traceId ?? argParent?.traceId ?? (
+          correlation.traceId && /^[0-9a-f]{32}$/i.test(correlation.traceId) ? correlation.traceId.toLowerCase() : validWorkflowRunTraceId
+        );
+        const parentSpanId = headerParent?.parentId ?? argParent?.parentId ?? validWorkflowRunSpanId;
 
         if (traceId) {
           let spanId = randomBytes(8).toString("hex");

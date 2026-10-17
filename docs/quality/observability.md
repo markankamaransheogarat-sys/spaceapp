@@ -238,8 +238,8 @@ use the same exporter (services `space-worker`, `space-memory-maintenance-worker
   sinks registered with `callDuringReplay: false`. During Temporal workflow history replay,
   zero spans are generated or exported. Only live workflow executions emit spans.
 - **Span links:** Workflow `continueAsNew` (`info.continuedFromExecutionRunId`) and Room Agent
-  background continuations (when `roomAgentContinuation` carries a valid hex run/span ID) record
-  OTLP span links pointing to their predecessor execution run.
+  background continuations (when `roomAgentContinuation` identifies the predecessor trace and span ID)
+  record OTLP span links pointing to their predecessor execution run.
 - **Worker:** worker logs read the trace ID from the activity input. Internal
   room-action calls from the worker send a child `traceparent`, so the internal
   API request joins the same trace. All three worker processes (`worker.ts`,

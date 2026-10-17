@@ -119,24 +119,23 @@ function extractCorrelationAttributes(args: readonly unknown[]): Record<string, 
 
 function extractContinuationLinks(args: readonly unknown[], currentTraceId: string): OtlpSpanLink[] {
   const links: OtlpSpanLink[] = [];
-  if (!/^[0-9a-f]{32}$/.test(currentTraceId)) return links;
   for (const arg of args) {
     if (!arg || typeof arg !== "object") continue;
     const record = arg as Record<string, unknown>;
     const turn = (record.turn ?? (record.item as Record<string, unknown>)?.turn) as Record<string, unknown> | undefined;
     if (turn?.roomAgentContinuation && typeof turn.roomAgentContinuation === "object") {
       const cont = turn.roomAgentContinuation as Record<string, unknown>;
-      const explicitTraceId = typeof cont.sourceTraceId === "string" && /^[0-9a-f]{32}$/i.test(cont.sourceTraceId)
+      const sourceTraceparent = typeof cont.sourceTraceparent === "string" ? parseTraceparent(cont.sourceTraceparent) : null;
+      const sourceTraceId = typeof cont.sourceTraceId === "string" && /^[0-9a-f]{32}$/i.test(cont.sourceTraceId)
         ? cont.sourceTraceId.toLowerCase()
-        : currentTraceId;
-      const explicitSpanId = typeof cont.sourceSpanId === "string" && /^[0-9a-f]{16}$/i.test(cont.sourceSpanId)
+        : sourceTraceparent?.traceId ?? null;
+      const sourceSpanId = typeof cont.sourceSpanId === "string" && /^[0-9a-f]{16}$/i.test(cont.sourceSpanId)
         ? cont.sourceSpanId.toLowerCase()
-        : null;
-      const sourceRunIdHex = typeof cont.sourceRunId === "string" ? cont.sourceRunId.replace(/-/g, "").toLowerCase() : "";
-      const derivedSpanId = /^[0-9a-f]{16,}$/.test(sourceRunIdHex) ? sourceRunIdHex.slice(0, 16) : null;
-      const spanId = explicitSpanId ?? derivedSpanId;
-      if (spanId && !/^0+$/.test(spanId)) {
-        links.push({ traceId: explicitTraceId, spanId });
+        : sourceTraceparent?.parentId ?? null;
+
+      // Only emit link when both predecessor traceId and spanId are valid W3C hex
+      if (sourceTraceId && sourceSpanId && !/^0+$/.test(sourceSpanId)) {
+        links.push({ traceId: sourceTraceId, spanId: sourceSpanId });
       }
     }
   }
