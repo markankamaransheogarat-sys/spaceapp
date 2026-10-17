@@ -1,4 +1,5 @@
 import {
+  ContinueAsNew,
   defaultPayloadConverter,
   proxySinks,
   workflowInfo,
@@ -184,10 +185,15 @@ export class WorkflowTracingInterceptor implements WorkflowInboundCallsIntercept
     for (const link of bgLinks) links.push(link);
 
     let error = false;
+    let continuedAsNew = false;
     let reasonCode: string | null = null;
     try {
       return await next(input);
     } catch (err: unknown) {
+      if (err instanceof ContinueAsNew || (err && typeof err === "object" && (err as Error).name === "ContinueAsNew")) {
+        continuedAsNew = true;
+        throw err;
+      }
       error = true;
       const rec = err as { code?: unknown; name?: unknown; message?: unknown };
       if (typeof rec?.code === "string") reasonCode = rec.code;
@@ -195,12 +201,16 @@ export class WorkflowTracingInterceptor implements WorkflowInboundCallsIntercept
       throw err;
     } finally {
       const endTimeUnixNano = (BigInt(Date.now()) * 1_000_000n).toString();
+      const workflowStatus = error ? "FAILED" : (continuedAsNew ? "CONTINUED_AS_NEW" : "COMPLETED");
       const rawAttributes: Record<string, unknown> = {
         "workflow.type": info.workflowType,
         "workflow.id": info.workflowId,
         "workflow.run_id": info.runId,
-        "workflow.status": error ? "FAILED" : "COMPLETED",
-        ...(parentSpanId ? { "workflow.parent_id": parentSpanId } : {}),
+        "workflow.status": workflowStatus,
+        ...(info.parent ? {
+          "workflow.parent_id": info.parent.workflowId,
+          "workflow.parent_run_id": info.parent.runId
+        } : {}),
         ...(reasonCode ? { "error.code": reasonCode } : {}),
         ...extractCorrelationAttributes(input.args)
       };
@@ -215,7 +225,7 @@ export class WorkflowTracingInterceptor implements WorkflowInboundCallsIntercept
           startTimeUnixNano,
           endTimeUnixNano,
           attributes,
-          error,
+          error: error && !continuedAsNew,
           links
         });
       } catch {

@@ -138,7 +138,7 @@ describe("Hermetic end-to-end integration and replay determinism: API traceparen
       activities: testActivities,
       sinks: createTracingSinks(spanExporter),
       interceptors: {
-        activity: [createActivityObservabilityInterceptors({ spanExporter })],
+        activity: [createActivityObservabilityInterceptors({ spans: spanExporter })],
         workflowModules: [resolveWorkflowTracingInterceptorPath()]
       }
     });
@@ -222,13 +222,13 @@ describe("Hermetic end-to-end integration and replay determinism: API traceparen
     expect(wfSpan.parentSpanId).toBe(testApiSpanId); // Direct child of API request span!
     expect(wfSpan.kind).toBe(1); // SPAN_KIND_INTERNAL
 
-    const actSpan = allSpans.find((s) => s.name === "activity:executeMockActivity" || s.name === "activity executeMockActivity");
+    const actSpan = allSpans.find((s) => s.name === "activity executeMockActivity");
     expect(actSpan).toBeDefined();
     expect(actSpan.traceId).toBe(testTraceId); // Exact same trace!
     expect(actSpan.parentSpanId).toBe(wfSpan.spanId); // Direct child of the workflow span!
     expect(actSpan.kind).toBe(1); // SPAN_KIND_INTERNAL
 
-    const arglessActSpan = allSpans.find((s) => s.name === "activity:executeArglessMockActivity" || s.name === "activity executeArglessMockActivity");
+    const arglessActSpan = allSpans.find((s) => s.name === "activity executeArglessMockActivity");
     expect(arglessActSpan).toBeDefined();
     expect(arglessActSpan.traceId).toBe(testTraceId); // Propagated via x-space-traceparent activity header!
     expect(arglessActSpan.parentSpanId).toBe(wfSpan.spanId); // Direct child of the workflow span!

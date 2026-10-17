@@ -138,7 +138,6 @@ export interface ObserveActivityDependencies {
   cancelled?: () => boolean;
   /** OTLP export (SPACE_OTEL_EXPORTER_OTLP_ENDPOINT): one span per activity under workflow or caller traceparent. */
   spans?: SpanExporter | null;
-  spanExporter?: SpanExporter | null;
   headerTraceparent?: string | null;
 }
 
@@ -226,7 +225,7 @@ export async function observeActivityExecution<T>(
       rssBytes: process.memoryUsage().rss
     });
 
-    const exporter = dependencies.spans ?? dependencies.spanExporter ?? null;
+    const exporter = dependencies.spans ?? null;
     if (exporter) {
       try {
         const argParent = activityTraceparent(args);
@@ -268,9 +267,7 @@ export async function observeActivityExecution<T>(
             ...correlation
           };
 
-          const spanName = dependencies.spanExporter && !dependencies.spans
-            ? `activity:${activityType}`
-            : `activity ${activityType}`;
+          const spanName = `activity ${activityType}`;
 
           exporter.record({
             traceId,
