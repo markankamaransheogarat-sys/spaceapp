@@ -288,6 +288,7 @@ async function smokeBrowser(image) {
       "-v", `${tmpDir}/database-url:/run/secrets/database-url:ro`,
       "-v", `${socketDir}:/run/spaceapp-browser`,
       "-e", "SPACE_RUNTIME_STORE=postgres",
+      "-e", "SPACE_BROWSER_SESSIONS_ENABLED=true",
       "-e", "SPACE_BROWSER_HOST_SOCKET=/run/spaceapp-browser/browser-host.sock",
       image
     ]);
