@@ -43,9 +43,18 @@ test("container size budget blocks an image one byte over its target ceiling", (
   });
 });
 
+import { prepareContainerTargets } from "../../deploy/docker/prepare-container-targets.mjs";
+
 test("container size budget rejects unknown targets", () => {
   assert.throws(
     () => evaluateContainerImageSize({ target: "unknown", sizeBytes: 1 }),
     /Unknown container target/
+  );
+});
+
+test("prepareContainerTargets rejects unsupported target architectures", () => {
+  assert.throws(
+    () => prepareContainerTargets({ targetArch: "invalid" }),
+    /Unsupported target architecture "invalid"/
   );
 });

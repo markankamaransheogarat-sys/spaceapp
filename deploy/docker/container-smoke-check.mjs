@@ -3,7 +3,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import net from "node:net";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
@@ -194,17 +194,53 @@ async function smokeCli(image) {
       }
     });
 
-    await new Promise((resolve) => {
-      client.once("data", (data) => {
-        if (data.length >= 4) {
-          const jsonLen = data.readUInt32BE(0);
-          const body = data.subarray(4, 4 + jsonLen).toString("utf8");
-          console.log(`[smoke-check:cli] Attach response received: ${body.slice(0, 100)}`);
-          resolve(true);
-        } else {
-          resolve(true);
+    await new Promise((resolve, reject) => {
+      let buffer = Buffer.alloc(0);
+      const timeout = setTimeout(() => {
+        cleanup();
+        reject(new Error("Timed out waiting for CLI attach response after 15000ms"));
+      }, 15000);
+
+      function cleanup() {
+        clearTimeout(timeout);
+        client.removeListener("data", onData);
+        client.removeListener("error", onError);
+      }
+
+      function onError(err) {
+        cleanup();
+        reject(err);
+      }
+
+      function onData(chunk) {
+        buffer = Buffer.concat([buffer, chunk]);
+        if (buffer.length >= 4) {
+          const jsonLen = buffer.readUInt32BE(0);
+          if (jsonLen === 0 || jsonLen > 16 * 1024 * 1024) {
+            cleanup();
+            reject(new Error(`Invalid frame length in CLI attach response: ${jsonLen}`));
+            return;
+          }
+          if (buffer.length >= 4 + jsonLen) {
+            cleanup();
+            try {
+              const bodyStr = buffer.subarray(4, 4 + jsonLen).toString("utf8");
+              const parsed = JSON.parse(bodyStr);
+              console.log(`[smoke-check:cli] Attach response received: ${JSON.stringify(parsed).slice(0, 100)}`);
+              if (parsed && parsed.kind === "response" && parsed.ok === true) {
+                resolve(true);
+              } else {
+                reject(new Error(`CLI attach response indicated failure or invalid schema: ${bodyStr}`));
+              }
+            } catch (err) {
+              reject(err);
+            }
+          }
         }
-      });
+      }
+
+      client.on("data", onData);
+      client.once("error", onError);
       client.write(attachRequest);
     });
 
@@ -329,7 +365,7 @@ export async function runContainerSmokeCheck(args = process.argv.slice(2)) {
   console.log(`[smoke-check] Target '${target}' passed all smoke verification checks!`);
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
   runContainerSmokeCheck().catch((error) => {
     console.error(error);
     process.exit(1);

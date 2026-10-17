@@ -41,6 +41,9 @@ function safeCopy(src, dst) {
 }
 
 export function prepareContainerTargets({ targetArch = "amd64" } = {}) {
+  if (targetArch !== "amd64" && targetArch !== "arm64") {
+    throw new Error(`Unsupported target architecture "${targetArch}". Expected "amd64" or "arm64".`);
+  }
   const isAmd64 = targetArch === "amd64";
   const isArm64 = targetArch === "arm64";
   const targetsRoot = join(root, "targets");
