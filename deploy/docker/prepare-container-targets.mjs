@@ -40,6 +40,13 @@ function safeCopy(src, dst) {
   cpSync(src, dst, { recursive: true, dereference: false });
 }
 
+/**
+ * Prepares isolated container filesystem targets (core, browser, cli) for Docker builds.
+ *
+ * @param {Object} [options] - Target preparation options.
+ * @param {"amd64"|"arm64"} [options.targetArch="amd64"] - The target architecture to bundle native prebuilds for.
+ * @throws {Error} If targetArch is not 'amd64' or 'arm64'.
+ */
 export function prepareContainerTargets({ targetArch = "amd64" } = {}) {
   if (targetArch !== "amd64" && targetArch !== "arm64") {
     throw new Error(`Unsupported target architecture "${targetArch}". Expected "amd64" or "arm64".`);
