@@ -332,8 +332,10 @@ async function smokeBrowser(image) {
                 response?.kind !== "response" ||
                 response.ok !== true ||
                 health?.status?.enabled !== true ||
-                health.capacity?.maxSessions < 8 ||
-                health.capacity?.maxLiveWorkloads < 4
+                typeof health?.capacity?.maxSessions !== "number" ||
+                health.capacity.maxSessions < 8 ||
+                typeof health?.capacity?.maxLiveWorkloads !== "number" ||
+                health.capacity.maxLiveWorkloads < 4
               ) {
                 throw new Error(`Browser Host health response is not ready: ${JSON.stringify(response)}`);
               }
