@@ -56,7 +56,7 @@ async function smokeCore(image) {
   const netName = `spaceapp-smoke-net-${unique}`;
   const pgContainer = `spaceapp-smoke-pg-${unique}`;
   const coreContainer = `spaceapp-smoke-core-${unique}`;
-  const tmpDir = join(process.env.RUNNER_TEMP || "/tmp", `spaceapp-core-secrets-${unique}`);
+  const tmpDir = join("/tmp", `spaceapp-core-secrets-${unique}`);
 
   try {
     docker(["network", "create", netName]);
@@ -118,14 +118,16 @@ async function smokeCore(image) {
     console.log("[smoke-check:core] Cleaning up...");
     spawnSync("docker", ["rm", "-f", coreContainer, pgContainer], { stdio: "ignore" });
     spawnSync("docker", ["network", "rm", netName], { stdio: "ignore" });
-    rmSync(tmpDir, { recursive: true, force: true });
+    try {
+      rmSync(tmpDir, { recursive: true, force: true });
+    } catch {}
   }
 }
 
 async function smokeCli(image) {
   const unique = `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
   const cliContainer = `spaceapp-smoke-cli-${unique}`;
-  const socketDir = join(process.env.RUNNER_TEMP || "/tmp", `spaceapp-cli-sock-${unique}`);
+  const socketDir = join("/tmp", `spaceapp-cli-sock-${unique}`);
 
   try {
     mkdirSync(socketDir, { recursive: true });
@@ -144,6 +146,7 @@ async function smokeCli(image) {
     let client = null;
 
     for (let i = 0; i < 30; i++) {
+      spawnSync("docker", ["exec", "-u", "0", cliContainer, "chmod", "-R", "0777", "/run/spaceapp-cli"], { stdio: "ignore" });
       try {
         const candidate = net.createConnection({ path: socketPath });
         await new Promise((resolve, reject) => {
@@ -248,8 +251,16 @@ async function smokeCli(image) {
     console.log("[smoke-check:cli] CLI smoke check completed successfully.");
   } finally {
     console.log("[smoke-check:cli] Cleaning up...");
+    spawnSync("docker", ["exec", "-u", "0", cliContainer, "chmod", "-R", "0777", "/run/spaceapp-cli"], { stdio: "ignore" });
     spawnSync("docker", ["rm", "-f", cliContainer], { stdio: "ignore" });
-    rmSync(socketDir, { recursive: true, force: true });
+    try {
+      rmSync(socketDir, { recursive: true, force: true });
+    } catch {
+      try {
+        spawnSync("docker", ["run", "--rm", "-v", `${socketDir}:/cleanup`, "alpine", "sh", "-c", "rm -rf /cleanup/* /cleanup/.* 2>/dev/null || true"], { stdio: "ignore" });
+        rmSync(socketDir, { recursive: true, force: true });
+      } catch {}
+    }
   }
 }
 
@@ -258,8 +269,8 @@ async function smokeBrowser(image) {
   const netName = `spaceapp-smoke-browser-net-${unique}`;
   const pgContainer = `spaceapp-smoke-browser-pg-${unique}`;
   const browserContainer = `spaceapp-smoke-browser-${unique}`;
-  const tmpDir = join(process.env.RUNNER_TEMP || "/tmp", `spaceapp-browser-secrets-${unique}`);
-  const socketDir = join(process.env.RUNNER_TEMP || "/tmp", `spaceapp-browser-sock-${unique}`);
+  const tmpDir = join("/tmp", `spaceapp-browser-secrets-${unique}`);
+  const socketDir = join("/tmp", `spaceapp-browser-sock-${unique}`);
 
   try {
     docker(["network", "create", netName]);
@@ -298,6 +309,7 @@ async function smokeBrowser(image) {
     let hostReady = false;
 
     for (let i = 0; i < 30; i++) {
+      spawnSync("docker", ["exec", "-u", "0", browserContainer, "chmod", "-R", "0777", "/run/spaceapp-browser"], { stdio: "ignore" });
       try {
         const client = net.createConnection({ path: socketPath });
         await new Promise((resolve, reject) => {
@@ -381,10 +393,20 @@ async function smokeBrowser(image) {
     console.log("[smoke-check:browser] Headless Chromium launched successfully and dumped DOM.");
   } finally {
     console.log("[smoke-check:browser] Cleaning up...");
+    spawnSync("docker", ["exec", "-u", "0", browserContainer, "chmod", "-R", "0777", "/run/spaceapp-browser"], { stdio: "ignore" });
     spawnSync("docker", ["rm", "-f", browserContainer, pgContainer], { stdio: "ignore" });
     spawnSync("docker", ["network", "rm", netName], { stdio: "ignore" });
-    rmSync(tmpDir, { recursive: true, force: true });
-    rmSync(socketDir, { recursive: true, force: true });
+    try {
+      rmSync(tmpDir, { recursive: true, force: true });
+    } catch {}
+    try {
+      rmSync(socketDir, { recursive: true, force: true });
+    } catch {
+      try {
+        spawnSync("docker", ["run", "--rm", "-v", `${socketDir}:/cleanup`, "alpine", "sh", "-c", "rm -rf /cleanup/* /cleanup/.* 2>/dev/null || true"], { stdio: "ignore" });
+        rmSync(socketDir, { recursive: true, force: true });
+      } catch {}
+    }
   }
 }
 
