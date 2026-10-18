@@ -146,6 +146,13 @@ export function prepareContainerTargets({ targetArch = "amd64" } = {}) {
     "cli-host"
   ]) {
     safeCopy(join(root, `packages/${pkg}`), join(coreRoot, `packages/${pkg}`));
+    rmSync(join(coreRoot, "packages", pkg, "tests"), { recursive: true, force: true });
+    rmSync(join(coreRoot, "packages", pkg, "__tests__"), { recursive: true, force: true });
+  }
+
+  for (const app of ["apps/api", "apps/worker", "apps/web"]) {
+    rmSync(join(coreRoot, app, "tests"), { recursive: true, force: true });
+    rmSync(join(coreRoot, app, "__tests__"), { recursive: true, force: true });
   }
 
   // Copy node_modules excluding node-pty (cli-only)
