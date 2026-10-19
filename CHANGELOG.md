@@ -5,6 +5,87 @@ Semantic Versioning.
 
 ## [Unreleased]
 
+## [1.1.6] - 2026-10-18
+
+Source: sanitized Space app @ f8803d5d96 (4595 files). Adds install telemetry
+for owners who opt in and the remaining fixes from the independent reviews of
+1.1.5; open items are listed in `docs/quality/KNOWN_LIMITATIONS.md`.
+
+### Pilot rehearsal fixes and team accounts
+
+- Codex sandboxes each command in the CLI container (Docker's default seccomp
+  profile plus user namespaces, no AppArmor profile) on Docker Desktop and on
+  Linux hosts that allow unprivileged user namespaces. Ubuntu 23.10 and later
+  restrict them, so there the container keeps Docker's defaults and Codex still
+  asks before each command.
+- `restore` prints workspace paths in plain quotes (Windows paths no longer show
+  doubled backslashes).
+- Team accounts, off until the owner runs `user enable`: each invited user gets
+  a CLI container of their own (own keys, logins, Space Memory and workspaces),
+  `credentials set`, `workspace add` and `provider install` take `--user`, and
+  backups keep each user's CLI settings and Space Memory. See "Team accounts" in
+  `docs/operations.md`.
+
+### Telemetry (only after the owner answers Yes)
+
+- The install wizard lists what telemetry sends before it asks; the default is
+  still No.
+- A Yes gives a new installation a random install ID (in `config.json`, passed
+  to SpaceApp as `SPACE_INSTALL_ID`) that links its events: `install_started`
+  (OS and version, CPU count, RAM, profile, access mode), then
+  `install_completed` or `install_failed` with the step and the duration.
+- SpaceApp then reports `setup_completed`, `first_cli` (which CLI started
+  first), `first_answer` and at most one `active` event a day with the screen
+  size, pixel ratio, browser, UI language and version. The collector derives
+  the country from the request and does not store the IP address.
+- Installations created by earlier launchers have no install ID and keep
+  sending only the events they agreed to.
+
+### Security
+
+- A signed-out session token can no longer be reused: session tokens must have
+  exactly two segments, so a revoked token with an extra segment is refused.
+- Session revocations fail closed until the saved ones are loaded after a
+  restart, and sign-out reports an error when the revocation could not be saved.
+- WebSocket handshakes (VNC stream, shared chat, harness) check the Origin.
+- Stored database passwords need a full 16-byte authentication tag, and the
+  Admin Mode delete guard also compares real paths.
+- The app is sent with `frame-ancestors 'self'`, `object-src 'none'` and
+  `X-Frame-Options: SAMEORIGIN`.
+- Every API child process, including the Space screenshot engine, starts
+  through one wrapper that removes the session secret and the database URL
+  from its environment.
+- CLI sessions create a missing folder only under the managed workspace root
+  or where pane creation may (SEC-009).
+- Admin Mode saves through a random temporary file and keeps the file mode.
+- `/api/worktrees` requires the ADMIN or OPERATOR role, and its errors no
+  longer echo raw messages.
+- VNC presets come from configuration (`SPACE_VNC_PRESETS`, empty by default).
+
+### Fixes
+
+- `factory-reset` checks the safety backup and the purge: without a backup it
+  erases only after `FACTORY-RESET-WITHOUT-BACKUP`, and a failed purge keeps
+  the configuration.
+- Provider installs and the first OpenCode launch recover from a lock left by
+  a killed process instead of failing or waiting 120 s on every start.
+- Two workspace folders with the same name get separate container paths.
+- Database transactions roll back at every failure site, and `/readyz` keeps
+  one pending check per stalled dependency.
+- Stopping a busy Codex pane sends the interrupt without waiting for its
+  composer.
+
+### Also in this release
+
+- Freelance Copilot pane, Liquid Glass theme, web app manifest and touch icon
+  (add SpaceApp to a phone's home screen).
+- Phones: a bottom bar to switch panes, panes that end above the keyboard, a
+  sticky Ctrl key and key repeat on the on-screen keyboard.
+- Browser panes: a tab can use another Google account, Ctrl+V works on
+  non-Latin keyboard layouts, and idle operator control returns to the agent.
+- Drag a pane onto a room in the Rooms dock to move it there.
+
+
 ## [1.1.5] - 2026-10-15
 
 Source: sanitized Space app @ 2a53fd9793 (4255 files). Addresses the

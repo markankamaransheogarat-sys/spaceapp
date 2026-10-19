@@ -3,11 +3,11 @@ import { createHash, randomBytes } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import type { FastifyInstance, FastifyReply, FastifyRequest, RouteShorthandOptions } from "fastify";
 import { z } from "zod";
-import { type AuthUser, loginInputSchema } from "@space/contracts";
+import { acceptUserInviteInputSchema, type AuthUser, loginInputSchema } from "@space/contracts";
 import { type GoogleAccount, nowIso, SpaceConflictError, SpaceNotFoundError, type SpaceStore } from "@space/runtime";
 import {
   type AuthConfig, authenticateLogin, buildGoogleAuthUrl, cookieName, defaultSessionRevocationStore,
-  exchangeGoogleCode, generatePkcePair, operatorSessionTtlSeconds, signOAuthState, signSession, signSessionWithTtl,
+  exchangeGoogleCode, generatePkcePair, hashPassword, operatorSessionTtlSeconds, signOAuthState, signSession, signSessionWithTtl,
   verifyGoogleIdToken, verifyOAuthState, verifyPassword, verifySession
 } from "./auth.js";
 import { operatorBrowserActor } from "./browser-actors.js";
@@ -40,6 +40,9 @@ export function registerAuthRoutes(app: FastifyInstance, options: {
   const { config, auth, store, browserSessionManager, routeOptions: defaultRouteRateLimitOptions,
     googleAccountBrowserStatuses, dotsAuthenticatedOwner, connectorStateTools, connectorServiceRef,
     persistRevocation } = options;
+  // Hashes a throwaway password once, so a sign-in for an email without an account costs the same scrypt time and the
+  // answer time does not reveal which emails exist (security review 2026-10-17).
+  let decoyHash: Promise<string> | null = null;
   app.post("/api/auth/login", {
     config: {
       rateLimit: {
@@ -50,11 +53,21 @@ export function registerAuthRoutes(app: FastifyInstance, options: {
   }, async (request, reply) => {
     const input = parseBody(loginInputSchema, request.body);
     const ownerCredentials = await store.getOwnerCredentials();
+    let hashed = false;
+    const verify = (passwordHash: string) => { hashed = true; return verifyPassword(input.password, passwordHash); };
     let user = ownerCredentials &&
       input.email.toLowerCase() === ownerCredentials.user.email.toLowerCase() &&
-      await verifyPassword(input.password, ownerCredentials.passwordHash)
+      await verify(ownerCredentials.passwordHash)
         ? ownerCredentials.user
         : null;
+    if (!user && config.multiUserEnabled && store.getPasswordUser) {
+      // Invited users sign in with their own password; a disabled user has none here.
+      const account = await store.getPasswordUser(input.email);
+      if (account && account.user.id !== ownerCredentials?.user.id && await verify(account.passwordHash)) {
+        user = account.user;
+      }
+    }
+    if (!user && !hashed && (ownerCredentials || config.multiUserEnabled)) await verify(await (decoyHash ??= hashPassword(randomBytes(16).toString("hex"))));
     if (!user && (auth.devLogin || !ownerCredentials)) {
       user = await authenticateLogin(input, auth);
     }
@@ -86,15 +99,52 @@ export function registerAuthRoutes(app: FastifyInstance, options: {
     reply.clearCookie("space_logged_out", { path: "/" });
     return { user: persistedUser, isAuthenticated: true, isSetupRequired: false, optionalModules: [...config.optionalModules] };
   });
+  // Accepting an invite creates the invited account with its own password and signs it in (SPACE_MULTI_USER_ENABLED).
+  app.post("/api/auth/invites/accept", {
+    config: {
+      rateLimit: {
+        max: 5,
+        timeWindow: "15 minutes"
+      }
+    }
+  }, async (request, reply) => {
+    if (!config.multiUserEnabled || !store.acceptUserInvite) {
+      return sendApiError(reply, 404, "MULTI_USER_DISABLED", "Multi-user accounts are not enabled on this installation.");
+    }
+    const input = parseBody(acceptUserInviteInputSchema, request.body);
+    const user = await store.acceptUserInvite({
+      tokenSha256: createHash("sha256").update(input.token).digest("hex"),
+      passwordHash: await hashPassword(input.password),
+      now: nowIso()
+    });
+    if (!user) {
+      await recordAudit(store, request, { action: "user.invite.accept_failed", targetType: "user_invite", metadata: { result: "failed" } });
+      return sendApiError(reply, 400, "INVITE_INVALID", "This invite is not valid, was already used or has expired.");
+    }
+    await recordAudit(store, request, {
+      actorUserId: user.id, action: "user.invite.accepted", targetType: "user", targetId: user.id, metadata: { role: user.role }
+    });
+    reply.setCookie(cookieName, signSession(user, auth.sessionSecret), {
+      httpOnly: true,
+      secure: auth.secureCookies,
+      sameSite: "lax",
+      path: "/",
+      maxAge: operatorSessionTtlSeconds
+    });
+    return { user, isAuthenticated: true, isSetupRequired: false, optionalModules: [...config.optionalModules] };
+  });
+  // A revocation takes effect at once; the answer says whether it was saved (external review 2026-10-16).
+  const revocationsSaved = async (...pending: Promise<void>[]) =>
+    (await Promise.allSettled(pending.map(persistRevocation))).every((result) => result.status === "fulfilled");
+  const logoutNotSaved = (reply: FastifyReply) => sendApiError(reply, 503, "LOGOUT_NOT_SAVED",
+    "You are logged out here, but the logout could not be saved yet; Space keeps retrying. Until it is saved, an API restart would accept this session again.");
   app.post("/api/auth/logout", defaultRouteRateLimitOptions, async (request, reply) => {
     const currentToken = request.cookies[cookieName];
-    if (currentToken) {
-      await persistRevocation(defaultSessionRevocationStore.revokeToken(currentToken));
-    }
     const body = (request.body ?? {}) as { revokeAll?: boolean };
-    if (body.revokeAll && request.user) {
-      await persistRevocation(defaultSessionRevocationStore.revokeUser(request.user.id));
-    }
+    const saved = await revocationsSaved(
+      ...(currentToken ? [defaultSessionRevocationStore.revokeToken(currentToken)] : []),
+      ...(body.revokeAll && request.user ? [defaultSessionRevocationStore.revokeUser(request.user.id)] : [])
+    );
     if (request.user) {
       await recordAudit(store, request, {
         action: "auth.logout",
@@ -111,17 +161,18 @@ export function registerAuthRoutes(app: FastifyInstance, options: {
       maxAge: 86400 * 30
     });
     reply.clearCookie(cookieName, { path: "/" });
+    if (!saved) return logoutNotSaved(reply);
     return { ok: true };
   });
   app.post("/api/auth/logout-all", defaultRouteRateLimitOptions, async (request, reply) => {
     if (!request.user) {
       return sendApiError(reply, 401, "UNAUTHORIZED", "Authentication required to revoke all sessions.");
     }
-    await persistRevocation(defaultSessionRevocationStore.revokeUser(request.user.id));
     const currentToken = request.cookies[cookieName];
-    if (currentToken) {
-      await persistRevocation(defaultSessionRevocationStore.revokeToken(currentToken));
-    }
+    const saved = await revocationsSaved(
+      defaultSessionRevocationStore.revokeUser(request.user.id),
+      ...(currentToken ? [defaultSessionRevocationStore.revokeToken(currentToken)] : [])
+    );
     await recordAudit(store, request, {
       actorUserId: request.user.id,
       action: "auth.logout_all",
@@ -137,13 +188,12 @@ export function registerAuthRoutes(app: FastifyInstance, options: {
       maxAge: 86400 * 30
     });
     reply.clearCookie(cookieName, { path: "/" });
+    if (!saved) return logoutNotSaved(reply);
     return { ok: true, message: "All user sessions have been revoked." };
   });
   const handleGetLogout = async (request: FastifyRequest, reply: FastifyReply) => {
     const currentToken = request.cookies[cookieName];
-    if (currentToken) {
-      await persistRevocation(defaultSessionRevocationStore.revokeToken(currentToken));
-    }
+    const saved = await revocationsSaved(...(currentToken ? [defaultSessionRevocationStore.revokeToken(currentToken)] : []));
     if (request.user) {
       await recordAudit(store, request, {
         actorUserId: request.user.id,
@@ -161,6 +211,7 @@ export function registerAuthRoutes(app: FastifyInstance, options: {
       maxAge: 86400 * 30
     });
     reply.clearCookie(cookieName, { path: "/" });
+    if (!saved) return logoutNotSaved(reply);
     return reply.redirect("/?login");
   };
   app.get("/api/auth/logout", defaultRouteRateLimitOptions, handleGetLogout);

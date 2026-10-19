@@ -13,14 +13,19 @@ const idParamSchema = z.object({ id: idSchema });
 /** Read-only artifact domain. Authentication and request/error policies remain
  * owned by the composition root; registration does not create service timers. */
 export function registerArtifactReadRoutes(app: FastifyInstance, options: {
-  store: Pick<SpaceStore, "listArtifacts" | "getArtifact">;
+  store: Pick<SpaceStore, "listArtifacts" | "getArtifact" | "listRooms">;
   artifactRoot: string;
   routeOptions: Pick<RouteShorthandOptions, "config">;
 }) {
   const { store, artifactRoot, routeOptions } = options;
   app.get("/api/artifacts", routeOptions, async (request) => {
     const page = listArtifactsQuerySchema.parse(request.query);
-    const artifacts = await store.listArtifacts(page);
+    let artifacts = await store.listArtifacts(page);
+    // A USER lists only artifacts of their own rooms (a roomId or paneId in the query is checked centrally).
+    if (request.user?.role === "USER") {
+      const owned = new Set((await store.listRooms(request.user.id)).map((room) => room.id));
+      artifacts = artifacts.filter((artifact) => artifact.roomId !== null && owned.has(artifact.roomId));
+    }
     const start = (page.page - 1) * page.pageSize;
     return {
       data: artifacts.slice(start, start + page.pageSize),
@@ -44,6 +49,10 @@ export function registerArtifactReadRoutes(app: FastifyInstance, options: {
       const fileStat = await handle.stat();
       const filename = artifactFilename(artifact);
       applyFileResponsePolicy(reply, artifact.mimeType, filename);
+      // An artifact's bytes never change: images (CLI photo thumbnails and viewer) reuse the browser cache.
+      if (artifact.mimeType.toLowerCase().startsWith("image/")) {
+        reply.header("cache-control", "private, max-age=86400, stale-while-revalidate=604800");
+      }
       reply.header("content-length", String(fileStat.size));
       return reply.send(handle.createReadStream());
     } catch (error) { await handle.close(); throw error; }

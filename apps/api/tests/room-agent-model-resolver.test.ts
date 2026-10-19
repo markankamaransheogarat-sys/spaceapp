@@ -5,7 +5,9 @@ import os from "node:os";
 import {
   checkCodexSolAvailability,
   checkGeminiAvailability,
-  resolveAdvancedMissionModel
+  resolveAdvancedMissionModel,
+  runOpenCodeText,
+  openCodeRunModeArgs
 } from "../src/room-agent-model-resolver.js";
 
 describe("room-agent-model-resolver", () => {
@@ -93,5 +95,36 @@ describe("room-agent-model-resolver", () => {
 
     await fs.rm(emptyGeminiDir, { recursive: true, force: true });
     await fs.rm(stateDir, { recursive: true, force: true });
+  });
+
+  it("runs OpenCode 2 standalone so `run` never starts its background service", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "space-opencode-mode-"));
+    try {
+      for (const [dir, target] of [["v1", "node_modules/opencode-ai/bin/opencode.exe"], ["v2", "node_modules/@opencode/cli/bin/opencode.exe"]]) {
+        await fs.mkdir(path.join(root, dir, path.dirname(target)), { recursive: true });
+        await fs.writeFile(path.join(root, dir, target), "");
+        await fs.symlink(path.join(root, dir, target), path.join(root, dir, "opencode"));
+      }
+      expect(openCodeRunModeArgs(path.join(root, "v1"))).toEqual([]);
+      expect(openCodeRunModeArgs(`${path.join(root, "missing")}${path.delimiter}${path.join(root, "v2")}`)).toEqual(["--standalone"]);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("answers only with OpenCode's text events, never with its raw error event", async () => {
+    const bin = await fs.mkdtemp(path.join(os.tmpdir(), "space-fake-opencode-"));
+    const savedPath = process.env.PATH;
+    const fake = (lines: string[]) => fs.writeFile(path.join(bin, "opencode"), `#!/bin/sh\nprintf '%s\\n' ${lines.map((line) => `'${line}'`).join(" ")}\n`, { mode: 0o755 });
+    try {
+      process.env.PATH = `${bin}${path.delimiter}${savedPath ?? ""}`;
+      await fake(['{"type":"error","sessionID":"ses_x","error":{"name":"UnknownError","data":{"message":"Unexpected server error."}}}']);
+      expect(await runOpenCodeText("opencode/big-pickle", "hi", 5_000)).toBeNull();
+      await fake(['{"type":"text","part":{"text":"Hugo is closed."}}']);
+      expect(await runOpenCodeText("opencode/big-pickle", "hi", 5_000)).toBe("Hugo is closed.");
+    } finally {
+      process.env.PATH = savedPath;
+      await fs.rm(bin, { recursive: true, force: true });
+    }
   });
 });

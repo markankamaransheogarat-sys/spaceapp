@@ -1,4 +1,4 @@
-import { taskTitleSettingsSchema, shortTaskTitle, roomSchema, paneSchema, userSettingsSchema, userLinkSchema, clipboardItemSchema, taskItemSchema, artifactSchema, MAX_ROOMS, pickNextAvailableRoomName } from "@space/contracts";
+import { taskTitleSettingsSchema, shortTaskTitle, roomSchema, paneSchema, userSettingsSchema, userLinkSchema, clipboardItemSchema, taskItemSchema, taskScheduleNextRunAt, artifactSchema, MAX_ROOMS, pickNextAvailableRoomName } from "@space/contracts";
 import { demoHealthSnapshot } from "./demo-health.js";
 import { generateSyntheticMemoryGraph, syntheticNodeDetail, type SyntheticMemoryGraph } from "./synthetic-memory-graph.js";
 import { defaultUserSettings, canonicalizeUserLinkUrl, cliToggleRuntimeIds, streamingMetricDefinitions, defaultToolRoutingState, buildEffectiveToolPlan, updateToolRoutingSchema, buildDotToolCatalog, dotWorkspacePath, dotUserSettingsFrom, summarizeDotProactiveUsage } from "@space/contracts";
@@ -131,7 +131,10 @@ function initialStreamingBotStatus(): StreamingBotStatus {
     platforms: {
       YOUTUBE: { connected: false, live: false, chatId: null, lastPollAt: null, lastReplyAt: null, pendingCount: 0 },
       TWITCH: { connected: false, live: false, chatId: null, lastPollAt: null, lastReplyAt: null, pendingCount: 0 }
-    }
+    },
+    moderationEnabled: false,
+    memoryPending: 0,
+    setup: [{ id: "demo", label: "Live chat", ok: false, hint: "Not available in the local demo." }]
   };
 }
 
@@ -634,7 +637,7 @@ export class DemoStore {
       cwd: "/workspace/space-demo",
       archived: false,
       source: "space-demo",
-      modelProvider: "codex-lb",
+      modelProvider: "space-gateway",
       threadSource: "demo-fixture",
       firstUserMessage: "Review the public launch workspace.",
       updatedAt: DEMO_FIXED_AT,
@@ -812,6 +815,15 @@ export class DemoStore {
       }
       case "clearStreamingBotMemory":
         return Promise.resolve({ removed: 3 });
+      case "streamingBotModels":
+        return Promise.resolve({ models: [] });
+      case "streamingBotMemory":
+        return Promise.resolve({ entries: args[0] === "APPROVED" ? [{
+          id: "streaming-memory:demo-001", title: "Stream schedule", body: "Live every Tuesday at 20:00 (demo entry).",
+          status: "APPROVED", source: "OPERATOR", version: 1, createdAt: DEMO_FIXED_AT, updatedAt: DEMO_FIXED_AT
+        }] : [] });
+      case "streamingModerationActions":
+        return Promise.resolve({ actions: [] });
       case "createCliAccountProfile": return Promise.resolve({
         profile: {
           runtimeId: String((args[0] as { runtimeId?: string } | undefined)?.runtimeId ?? "cli:gemini"),
@@ -1161,6 +1173,12 @@ export class DemoStore {
       case "codexLbSpeedDefaults":
       case "updateCodexLbSpeedDefault": return Promise.resolve(structuredClone(this.fixture.codexLbSpeedDefaults));
       case "gatewayStatus": return Promise.resolve(this.demoGatewayStatus());
+      // The demo holds no Anthropic admin key: the card says so and nothing leaves the page.
+      case "gatewayAnthropicAdmin":
+      case "syncGatewayAnthropicBilling":
+      case "saveGatewayAnthropicAdminKey": return Promise.resolve({ configured: false, keyHint: null, savedAt: null, lastSyncAt: null, lastError: null, upstream: [] });
+      case "removeGatewayAnthropicAdminKey": return Promise.resolve({ removed: false });
+      case "gatewayAnthropicBilling": return Promise.resolve({ status: { configured: false, keyHint: null, savedAt: null, lastSyncAt: null, lastError: null, upstream: [] }, days: [] });
       case "gatewaySettings": return Promise.resolve(structuredClone(this.demoGatewaySettings));
       case "updateGatewaySettings":
         this.demoGatewaySettings = { ...this.demoGatewaySettings, ...(args[0] as object), updatedAt: DEMO_FIXED_AT };
@@ -1193,7 +1211,7 @@ export class DemoStore {
       case "restartCoreServices": return Promise.resolve(structuredClone(this.fixture.adminDiagnostics.serviceRestart));
       case "streamingCatalog": {
         const response: StreamingCatalogResponse = {
-          providers: (["YOUTUBE", "TWITCH", "TIKTOK"] as const).map((provider) => ({
+          providers: (["YOUTUBE", "TWITCH", "TIKTOK", "X", "DISCORD"] as const).map((provider) => ({
             provider,
             status: "UNCONFIGURED",
             clientFilePresent: false,
@@ -1262,6 +1280,12 @@ export class DemoStore {
       case "verifyStreamingAccount":
       case "removeStreamingAccount":
       case "disconnectStreamingAuthorization":
+      case "createStreamingBotMemory":
+      case "updateStreamingBotMemory":
+      case "deleteStreamingBotMemory":
+      case "undoStreamingModerationAction":
+      case "timeoutStreamingModerationReview":
+      case "streamingLiveAction":
         throw new SpaceApiError(DEMO_LOCAL_REPLY, { status: 409, code: "DEMO_LOCAL_ONLY" });
       case "streamingBotSettings":
       case "updateStreamingBotSettings":
@@ -1272,6 +1296,9 @@ export class DemoStore {
       case "testStreamingBot":
       case "clearStreamingBotMemory":
       case "searchStreamingBotMemory":
+      case "streamingBotModels":
+      case "streamingBotMemory":
+      case "streamingModerationActions":
         return this.invokeStreamingBot(String(method), args);
       case "cliRuntimeRestart": {
         const runtimeId = String(args[0] ?? "cli:opencode");
@@ -2181,7 +2208,10 @@ export class DemoStore {
           occurrenceCount: 1,
           characterCount: Array.from(input.objective).length,
           createdAt: DEMO_FIXED_AT,
-          lastUsedAt: DEMO_FIXED_AT
+          lastUsedAt: DEMO_FIXED_AT,
+          schedule: input.schedule ? { ...input.schedule, timeZone: input.schedule.timeZone ?? "UTC",
+            nextRunAt: taskScheduleNextRunAt({ ...input.schedule, timeZone: input.schedule.timeZone ?? "UTC" }, input.status ?? "OPEN", Date.now()),
+            lastRunAt: null, lastOutcome: null } : null
         };
         this.fixture.taskItems.unshift(item);
         return Promise.resolve(structuredClone(item));
@@ -2189,12 +2219,14 @@ export class DemoStore {
       case "updateTaskItem": {
         const task = this.fixture.taskItems.find((candidate) => candidate.id === roomId);
         if (!task) throw new SpaceApiError("Task not found.", { status: 404, code: "NOT_FOUND" });
-        Object.assign(task, args[1], {
+        const { schedule: _schedule, ...changes } = args[1] as Partial<TaskItem>;
+        Object.assign(task, changes, {
           characterCount: "objective" in (args[1] as { objective?: string })
             ? Array.from((args[1] as { objective: string }).objective).length
             : task.characterCount,
           lastUsedAt: DEMO_FIXED_AT
         });
+        if (task.schedule) task.schedule = { ...task.schedule, nextRunAt: taskScheduleNextRunAt(task.schedule, task.status, Date.now(), task.schedule) };
         return Promise.resolve(structuredClone(task));
       }
       case "deleteTaskItem": if (this.publicMock) this.fixture.taskItems = this.fixture.taskItems.filter(item => item.id !== roomId); return Promise.resolve({ id: roomId!, deleted: true as const });

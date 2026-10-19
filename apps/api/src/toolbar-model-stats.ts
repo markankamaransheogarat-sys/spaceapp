@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile } from "./safe-child-process.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { copyFile, open, readFile, readdir, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -208,14 +208,37 @@ export async function readOpenCodeModelRows(input: {
   windowMinutes: number;
   now: () => Date;
   stateRoot: string;
+  dbPath?: string;
 }): Promise<OpenCodeDbRow[]> {
   const validIds = input.nativeSessionIds.filter((id) => opencodeNativeSessionIdPattern.test(id));
   if (validIds.length === 0) return [];
-  const dbPath = await resolveOpenCodeDbPath(input.stateRoot);
+  const dbPath = input.dbPath ?? await resolveOpenCodeDbPath(input.stateRoot);
   if (!dbPath) return [];
   const windowMs = Math.max(1, input.windowMinutes) * 60_000;
   const sinceMs = input.now().getTime() - windowMs;
   const sessionClause = validIds.map(sqliteQuote).join(", ");
+  // shortcut: once OpenCode 2 has opened the store (session_v2) its tables are read, so messages a rolled-back
+  // OpenCode 1 writes later are not counted; read both if a rollback has to last.
+  const openCode2 = (await runSqliteJson(dbPath, "select 1 as found from sqlite_master where type = 'table' and name = 'session_v2';")).length > 0;
+  if (openCode2) {
+    // OpenCode 2 stores one message per step with its own times; emit the v1 step-start/text/step-finish rows from them.
+    return runSqliteJson<OpenCodeDbRow>(dbPath, [
+      "select m.session_id as sessionId, m.id as messageId,",
+      "json_extract(m.data, '$.model.id') as modelID, json_extract(m.data, '$.model.providerID') as providerID,",
+      "m.time_created as msgCreated,",
+      "json_extract(m.data, '$.tokens.input') as msgTokensIn, json_extract(m.data, '$.tokens.output') as msgTokensOut,",
+      "json_extract(m.data, '$.tokens.reasoning') as msgTokensReasoning,",
+      "k.partType as partType,",
+      "case k.partType when 'step-start' then json_extract(m.data, '$.time.created')",
+      "when 'step-finish' then json_extract(m.data, '$.time.completed')",
+      "else (select min(json_extract(c.value, '$.time.created')) from json_each(m.data, '$.content') c) end as partTime",
+      "from session_message m",
+      "cross join (select 'step-start' as partType union all select 'text' union all select 'step-finish') k",
+      `where m.type = 'assistant' and m.time_created >= ${sinceMs}`,
+      `and m.session_id in (${sessionClause})`,
+      "order by partTime asc;"
+    ].join(" "));
+  }
   const sql = [
     "select",
     "s.id as sessionId,",
@@ -466,7 +489,8 @@ export async function resolveCodexRolloutPaths(threadIds: string[], codexHome: s
 
 export async function resolveRecentCodexRollouts(
   sinceMs: number,
-  codexHome: string
+  codexHome: string,
+  limit = 200
 ): Promise<Array<{ threadId: string; rolloutPath: string }>> {
   const candidates = [join(codexHome, "state_5.sqlite")];
   try {
@@ -481,7 +505,7 @@ export async function resolveRecentCodexRollouts(
   } catch {}
   const sinceSec = Math.floor(sinceMs / 1000);
   const byThread = new Map<string, string>();
-  const sql = `select id, rollout_path from threads where updated_at >= ${sinceSec} order by updated_at desc limit 200;`;
+  const sql = `select id, rollout_path from threads where updated_at >= ${sinceSec} order by updated_at desc limit ${Math.max(1, Math.min(Math.trunc(limit), 5000))};`;
   for (const dbPath of candidates) {
     try {
       const rows = await runSqliteJson<{ id?: unknown; rollout_path?: unknown }>(dbPath, sql);
@@ -506,7 +530,12 @@ export async function readCodexRolloutTail(path: string): Promise<string> {
     const { bytesRead } = await handle.read(buffer, 0, buffer.length, metadata.size - codexRolloutTailMaxBytes);
     const firstNewline = buffer.indexOf("\n", 0);
     const start = firstNewline === -1 ? 0 : firstNewline + 1;
-    return buffer.toString("utf8", start, bytesRead);
+    // The first line is session_meta (the model provider: through Space Gateway or not); the tail cuts it off.
+    const head = Buffer.alloc(256 * 1024);
+    const { bytesRead: headRead } = await handle.read(head, 0, head.length, 0);
+    const headEnd = head.subarray(0, headRead).indexOf("\n");
+    const sessionMeta = headEnd > 0 && head.toString("utf8", 0, headEnd).includes('"session_meta"') ? head.toString("utf8", 0, headEnd + 1) : "";
+    return sessionMeta + buffer.toString("utf8", start, bytesRead);
   } finally {
     await handle.close();
   }

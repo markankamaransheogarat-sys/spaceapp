@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://spaceapp.dev"><img src="https://raw.githubusercontent.com/oll4com/spaceapp/main/docs/images/spaceapp-hero-banner.png" alt="SpaceApp — The Super Agent App" width="900" /></a>
+  <a href="https://spaceapp.dev/?utm_source=github&utm_medium=readme"><img src="https://raw.githubusercontent.com/oll4com/spaceapp/main/docs/images/spaceapp-hero-banner.png" alt="SpaceApp — The Super Agent App" width="900" /></a>
 </p>
 
 <p align="center">
@@ -16,7 +16,7 @@
 <p align="center">
   Run <b>OpenCode</b>, <b>OpenAI Codex</b>, <b>Claude Code</b>, <b>Google Gemini</b>, <b>Qwen</b>, <b>Kimi</b>, <b>Grok</b>, and <b>DeepSeek</b> concurrently in persistent rooms on your own machine. Rooms organize sessions; they are not a security boundary between mutually untrusted users.
   <br>
-  <a href="https://spaceapp.dev"><b>Explore spaceapp.dev »</b></a> | <a href="https://spaceapp.dev/spaceappmock/"><b>Try Live Demo »</b></a>
+  <a href="https://spaceapp.dev/?utm_source=github&utm_medium=readme"><b>Explore spaceapp.dev »</b></a> | <a href="https://spaceapp.dev/spaceappmock/?utm_source=github&utm_medium=readme"><b>Try Live Demo »</b></a>
 </p>
 
 ---
@@ -106,7 +106,7 @@ npx --yes run-spaceapp@latest install
 
 ### What Happens Next (Step-by-Step Onboarding):
 1. **System & Docker Verification**: The launcher verifies CPU, RAM, and disk space, and installs/starts Docker if needed.
-2. **Container Initialization**: Pulls SpaceApp's images by exact version tag (published with SBOM and provenance attestations that the release workflow verifies) and the third-party images pinned by digest, then starts the container stack.
+2. **Container Initialization**: Pulls SpaceApp's images by the digest the npm package pins (from run-spaceapp 1.1.7; earlier packages by exact version tag; published with SBOM and provenance attestations that the release workflow verifies) and the third-party images pinned by digest, then starts the container stack.
 3. **One-Time Setup Token**: The terminal prints a secure 15-minute setup token and automatically opens `http://127.0.0.1:4911`.
 4. **Create Your Operator Account**: Paste the token into the setup screen, enter your email and password, and click Create Owner.
 5. **Start Coding with OpenCode**: Open the Getting Started room, verify the available provider/model and complete its authentication if required. Submit a small task and check its actual result.
