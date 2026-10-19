@@ -239,7 +239,8 @@ export function renderCompose({ paths, ports, images }) {
     `      - "127.0.0.1:${ports.postgresPort}:5432"`,
     "    volumes:",
     "      - spaceapp-dev-postgres:/var/lib/postgresql/data",
-    `      - ${JSON.stringify(`${postgresSecretPath}:/run/secrets/postgres-password:ro`)}`,
+    "    secrets:",
+    "      - postgres-password",
     "    healthcheck:",
     '      test: ["CMD-SHELL", "pg_isready -U spaceapp -d spaceapp"]',
     "      interval: 2s",
@@ -260,15 +261,20 @@ export function renderCompose({ paths, ports, images }) {
     "      DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/docker.yaml",
     "    ports:",
     `      - "127.0.0.1:${ports.temporalPort}:7233"`,
-    "    volumes:",
-    `      - ${JSON.stringify(`${postgresSecretPath}:/run/secrets/postgres-password:ro`)}`,
+    "    secrets:",
+    "      - postgres-password",
     '    entrypoint: ["/bin/sh", "-ec"]',
     '    command: ["export POSTGRES_PWD=\\"$$(cat /run/secrets/postgres-password)\\"; exec /etc/temporal/entrypoint.sh autosetup"]',
     "    healthcheck:",
-    '      test: ["CMD-SHELL", "addr=$$(hostname -i); addr=$${addr%% *}:7233; temporal operator cluster health --address $$addr >/dev/null && temporal operator namespace describe --namespace default --address $$addr >/dev/null"]',
+    '      test: ["CMD-SHELL", "temporal operator cluster health --address temporal:7233 >/dev/null && temporal operator namespace describe --namespace default --address temporal:7233 >/dev/null"]',
     "      interval: 3s",
     "      timeout: 5s",
     "      retries: 40",
+    "      start_period: 10s",
+    "",
+    "secrets:",
+    "  postgres-password:",
+    `    file: ${JSON.stringify(postgresSecretPath)}`,
     "",
     "volumes:",
     "  spaceapp-dev-postgres:",
@@ -1252,9 +1258,21 @@ export async function runUp(repoRoot, { detach = false, env = process.env } = {}
   buildWorkspacePackages(repoRoot);
 
   console.log("[dev:stack] Starting Postgres and Temporal containers...");
-  runDockerCompose(paths, projectName, ["up", "-d", "--wait", "postgres", "temporal"], {
-    env
-  });
+  try {
+    runDockerCompose(paths, projectName, ["up", "-d", "--wait", "postgres"], {
+      env
+    });
+    runDockerCompose(paths, projectName, ["up", "-d", "--wait", "temporal"], {
+      env
+    });
+  } catch (error) {
+    try {
+      runDockerCompose(paths, projectName, ["logs", "--tail", "60", "postgres", "temporal"], {
+        env
+      });
+    } catch {}
+    throw error;
+  }
 
   await waitForTcp(ports.postgresPort, { label: "Postgres" });
   await waitForTcp(ports.temporalPort, { label: "Temporal gRPC" });
