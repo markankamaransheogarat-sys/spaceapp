@@ -10660,7 +10660,7 @@ export class PostgresSpaceStore implements SpaceStore {
             ended_at,
             trace_id
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NULL, $18, $19, $19, NULL, $20)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NULL, $18, $19, $20, NULL, $21)
           ON CONFLICT (session_id)
           DO UPDATE SET
             pane_id = EXCLUDED.pane_id,
@@ -10729,7 +10729,8 @@ export class PostgresSpaceStore implements SpaceStore {
           parsed.status ?? "IDLE",
           parsed.statusReason ?? null,
           isActive,
-          timestamp,
+          parsed.startedAt ?? timestamp,
+          parsed.updatedAt ?? timestamp,
           traceId ?? null
         ]
       );
