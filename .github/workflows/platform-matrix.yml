@@ -112,7 +112,7 @@ jobs:
           node packages/run-spaceapp/bin/spaceapp.mjs uninstall \
             --purge-data \
             --non-interactive \
-            --answers '{"confirm":"DELETE"}'
+            --answers '{"purgeConfirm":"DELETE","confirm":"DELETE"}'
           RUNNING="$(podman ps -q)"
           if [ -n "$RUNNING" ]; then
             echo "Unexpected running Podman containers: $RUNNING" >&2

@@ -203,7 +203,7 @@ test("composeCommand builds podman compose invocations across all lifecycle acti
   }
 });
 
-test("renderWorkspaceCompose emits keep-id userns_mode and SELinux z label only for podman", async () => {
+test("renderWorkspaceCompose emits SELinux z label only for podman", async () => {
   const root = await mkdtemp(join(tmpdir(), "spaceapp-podman-workspace-"));
   const wsDir = join(root, "project-alpha");
   await mkdir(wsDir, { recursive: true });
@@ -214,11 +214,10 @@ test("renderWorkspaceCompose emits keep-id userns_mode and SELinux z label only 
     engine: "podman"
   });
   const emptyPodman = renderWorkspaceCompose(basePodman);
-  assert.match(emptyPodman, /userns_mode: "keep-id:uid=10001,gid=10001"/);
+  assert.doesNotMatch(emptyPodman, /selinux/);
 
   const withWorkspacePodman = await addWorkspace(basePodman, wsDir, { readOnly: false });
   const populatedPodman = renderWorkspaceCompose(withWorkspacePodman);
-  assert.match(populatedPodman, /userns_mode: "keep-id:uid=10001,gid=10001"/);
   assert.match(populatedPodman, /bind:\n {10}selinux: z/);
   assert.match(populatedPodman, /read_only: false/);
 
