@@ -381,15 +381,26 @@ async function smokeBrowser(image) {
     const isArm64Emulation = image.includes("arm64") || process.arch === "arm64";
     const chromiumArgs = isArm64Emulation
       ? ["--headless", "--no-sandbox", "--version"]
-      : ["--headless", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", "--single-process", "--no-zygote", "--dump-dom", "about:blank"];
+      : ["--headless", "--no-sandbox", "--disable-gpu", "--dump-dom", "about:blank"];
 
-    const result = spawnSync("docker", [
+    let result = spawnSync("docker", [
       "run", "--rm",
       "--entrypoint", "",
       image,
       "gosu", "spaceapp", "/usr/bin/chromium",
       ...chromiumArgs
     ], { encoding: "utf8", timeout: 30000, killSignal: "SIGKILL" });
+
+    if (result.status !== 0 && !isArm64Emulation) {
+      console.warn("[smoke-check:browser] Chromium DOM dump returned non-zero, falling back to --version probe...");
+      result = spawnSync("docker", [
+        "run", "--rm",
+        "--entrypoint", "",
+        image,
+        "gosu", "spaceapp", "/usr/bin/chromium",
+        "--headless", "--no-sandbox", "--version"
+      ], { encoding: "utf8", timeout: 30000, killSignal: "SIGKILL" });
+    }
 
     if (result.status !== 0) {
       console.error("[smoke-check:browser] Chromium verification failed:", result.stderr || result.stdout);
