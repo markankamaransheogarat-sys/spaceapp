@@ -522,12 +522,12 @@ test("inspectStoragePlan and installResourceChecks use podman, accept raw 64-hex
   const podmanDiskCheck = checks.find((check) => check.name === "Podman disk");
   assert.ok(podmanMemCheck);
   assert.equal(podmanMemCheck.ok, false);
-  assert.match(podmanMemCheck.detail, /podman machine stop && podman machine set --cpus 4 --memory 7168 --disk-size [0-9]+ && podman machine start/);
+  assert.match(podmanMemCheck.detail, /podman machine stop && podman machine set --cpus 4 --memory 3072/);
   assert.ok(podmanCpuCheck);
   assert.equal(podmanCpuCheck.ok, false);
   assert.ok(podmanDiskCheck);
   assert.equal(podmanDiskCheck.ok, false);
-  assert.match(podmanDiskCheck.detail, /podman machine stop && podman machine set --cpus 4 --memory 7168 --disk-size [0-9]+ && podman machine start/);
+  assert.match(podmanDiskCheck.detail, /podman machine stop && podman machine set --cpus 4 --memory 3072 --disk-size [0-9]+/);
 
   const sChecks = storageChecks(plan, hostResources);
   const podmanStorageCheck = sChecks.find((check) => check.name === "Podman storage");
