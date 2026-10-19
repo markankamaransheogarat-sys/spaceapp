@@ -778,11 +778,67 @@ export function podmanInstallInstructions(platform = process.platform, release =
   ].join("\n");
 }
 
+export async function podmanApiServiceReady(execute) {
+  try {
+    return (await execute({ command: "podman", args: ["compose", "ls"] }, { stdout: null, stderr: null })) === 0;
+  } catch {
+    return false;
+  }
+}
+
+export function podmanApiServiceHelp() {
+  return [
+    "The Podman API socket is not reachable, so the compose provider cannot connect.",
+    "Start it once and retry:",
+    "  systemctl --user enable --now podman.socket   # systemd hosts",
+    "  podman system service --time=0 &               # hosts without systemd"
+  ];
+}
+
+export async function ensurePodmanApiService(
+  execute,
+  {
+    platform = process.platform,
+    waitMs = 15000,
+    sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+  } = {}
+) {
+  if (await podmanApiServiceReady(execute)) {
+    return { ok: true, started: false };
+  }
+  if (platform !== "linux") {
+    return {
+      ok: false,
+      instructions: [
+        "The Podman API socket is not reachable, so the compose provider cannot connect.",
+        "Start (or restart) the podman machine and try again:",
+        "  podman machine start"
+      ]
+    };
+  }
+  const startCode = await execute(
+    { command: "podman", args: ["system", "service", "--time=0"], background: true },
+    { stdout: null, stderr: null }
+  );
+  if (startCode !== 0) {
+    return { ok: false, instructions: podmanApiServiceHelp() };
+  }
+  const deadline = Date.now() + waitMs;
+  while (Date.now() < deadline) {
+    if (await podmanApiServiceReady(execute)) {
+      return { ok: true, started: true };
+    }
+    await sleep(250);
+  }
+  return { ok: false, instructions: podmanApiServiceHelp() };
+}
+
 export async function ensurePodmanAvailable({
   platform = process.platform,
   stderr = process.stderr,
   execute,
-  osRelease
+  osRelease,
+  apiService = ensurePodmanApiService
 }) {
   const probe = await inspectPodmanEnvironment({ execute });
   if (!probe.cliOk || !probe.versionOk || !probe.composeOk) {
@@ -833,6 +889,11 @@ export async function ensurePodmanAvailable({
       );
       return { code: 1, reexecuted: false };
     }
+  }
+  const service = await apiService(execute, { platform });
+  if (!service.ok) {
+    stderr.write((service.instructions || []).join("\n") + "\n");
+    return { code: 1, reexecuted: false };
   }
   return { code: 0, reexecuted: false };
 }

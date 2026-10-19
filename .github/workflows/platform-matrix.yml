@@ -89,6 +89,7 @@ jobs:
           printf "[Service]\nDelegate=cpu cpuset io memory pids\n" | sudo tee /etc/systemd/system/user@.service.d/delegate.conf >/dev/null
           sudo systemctl daemon-reload
           sudo loginctl enable-linger "$USER" || true
+          systemctl --user enable --now podman.socket || true
           podman --version
           podman compose version
           podman info --format '{{json .}}'

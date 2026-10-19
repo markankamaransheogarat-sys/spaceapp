@@ -2855,7 +2855,7 @@ export function executeCommand(spec, { stdin, stdout, stderr, input } = {}) {
     const commandEnv = spec.command === "podman"
       ? { PODMAN_COMPOSE_WARNING_LOGS: "false", ...baseEnv }
       : baseEnv;
-    const background = spec.command === 'xdg-open' && spec.background === true;
+    const background = spec.background === true && (spec.command === 'xdg-open' || spec.command === 'podman');
     let launchTimer, commandTimer;
     const child = spawnTrustedCommand(spec, {
       env: commandEnv,

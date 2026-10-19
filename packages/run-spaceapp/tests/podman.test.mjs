@@ -17,8 +17,11 @@ import {
   validateConfig
 } from "../src/index.mjs";
 import {
+  ensurePodmanApiService,
   ensurePodmanAvailable,
   inspectPodmanEnvironment,
+  podmanApiServiceHelp,
+  podmanApiServiceReady,
   podmanInstallInstructions
 } from "../src/prerequisites.mjs";
 import { inspectStoragePlan, storageChecks } from "../src/storage.mjs";
@@ -761,3 +764,95 @@ test("interactive setup auto-detects and offers Podman when Docker is unavailabl
   const savedConfig = await loadConfig(root);
   assert.equal(savedConfig.engine, "podman");
 });
+
+test("podmanApiServiceReady probes the compose path exactly where compose runs", async () => {
+  const calls = [];
+  const execute = async (spec) => {
+    calls.push(spec);
+    return spec.args.join(" ") === "compose ls" ? 1 : 0;
+  };
+  assert.equal(await podmanApiServiceReady(execute), false);
+  assert.equal(await podmanApiServiceReady(async () => 0), true);
+  assert.deepEqual(calls, [{ command: "podman", args: ["compose", "ls"] }]);
+});
+
+test("ensurePodmanApiService starts a detached podman system service when the socket is missing", async () => {
+  const calls = [];
+  let serviceStarted = false;
+  const execute = async (spec) => {
+    calls.push(spec);
+    const args = spec.args.join(" ");
+    if (args === "system service --time=0") {
+      serviceStarted = true;
+      return 0;
+    }
+    if (args === "compose ls") {
+      return serviceStarted ? 0 : 1;
+    }
+    return 0;
+  };
+  const result = await ensurePodmanApiService(execute, { platform: "linux", sleep: async () => {} });
+  assert.equal(result.ok, true);
+  assert.equal(result.started, true);
+  const service = calls.find((spec) => spec.args.join(" ") === "system service --time=0");
+  assert.ok(service, "expected a detached podman system service start");
+  assert.equal(service.background, true);
+});
+
+test("ensurePodmanApiService explains a missing socket on macOS instead of starting a service", async () => {
+  const calls = [];
+  const execute = async (spec) => {
+    calls.push(spec);
+    return spec.args.join(" ") === "compose ls" ? 1 : 0;
+  };
+  const result = await ensurePodmanApiService(execute, { platform: "darwin" });
+  assert.equal(result.ok, false);
+  assert.match(result.instructions.join("\n"), /podman machine start/);
+  assert.ok(calls.every((spec) => !spec.args.includes("system")));
+});
+
+test("ensurePodmanApiService gives up after the wait and prints manual guidance", async () => {
+  const execute = async (spec) => (spec.args.join(" ") === "system service --time=0" ? 0 : 1);
+  const result = await ensurePodmanApiService(execute, { platform: "linux", waitMs: 5, sleep: async () => {} });
+  assert.equal(result.ok, false);
+  assert.match(result.instructions.join("\n"), /podman system service/);
+});
+
+test("ensurePodmanApiService fails fast when the service cannot start at all", async () => {
+  const result = await ensurePodmanApiService(async () => 1, { platform: "linux" });
+  assert.equal(result.ok, false);
+  assert.match(result.instructions.join("\n"), /podman.socket/);
+});
+
+test("ensurePodmanAvailable fails with socket guidance when the API service cannot come up", async () => {
+  const stderr = capture();
+  const result = await ensurePodmanAvailable({
+    platform: "linux",
+    stderr: stderr.stream,
+    execute: async (spec, io) => {
+      if (spec.args[0] === "--version") {
+        io.stdout.write("podman version 5.2.0\n");
+        return 0;
+      }
+      if (spec.args[0] === "compose") {
+        io.stdout.write("Docker Compose version v2.29.2\n");
+        return 0;
+      }
+      if (spec.args[0] === "info") {
+        io.stdout.write(JSON.stringify({
+          host: {
+            cgroupVersion: "v2",
+            cgroupControllers: ["cpu", "memory"],
+            security: { rootless: true }
+          }
+        }));
+        return 0;
+      }
+      return 0;
+    },
+    apiService: async () => ({ ok: false, instructions: podmanApiServiceHelp() })
+  });
+  assert.equal(result.code, 1);
+  assert.match(stderr.value(), /podman.socket/);
+});
+
