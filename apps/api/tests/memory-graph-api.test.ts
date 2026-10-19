@@ -483,8 +483,9 @@ describe("Memory graph API", () => {
       const userToken = signSession({ id: "user:regular", email: "user@space.test", role: "USER" }, sessionSecret);
       const app = await memoryGraphApp(true, new InMemorySpaceStore(), false, undefined, { graphSnapshot: largeSnapshot(300) });
       const response = await get(app, "", { cookie: `space_session=${userToken}` });
-      expect(response.statusCode).toBe(403);
-      expect(response.json().error.code).toBe("FORBIDDEN");
+      // A USER reaches only its own rooms' routes; everything else is not found (MU-001).
+      expect(response.statusCode).toBe(404);
+      expect(response.json().error.code).toBe("NOT_FOUND");
       await app.close();
     });
 
