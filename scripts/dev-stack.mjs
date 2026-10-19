@@ -249,6 +249,7 @@ export function renderCompose({ paths, ports, images }) {
     "",
     "  temporal:",
     `    image: ${images.temporalImage}`,
+    '    user: "0:0"',
     "    restart: unless-stopped",
     "    depends_on:",
     "      postgres:",
