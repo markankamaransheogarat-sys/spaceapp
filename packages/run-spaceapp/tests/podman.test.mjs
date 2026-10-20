@@ -669,6 +669,29 @@ test("CLI installs with --engine podman, dispatches podman across lifecycle comm
     assert.ok(executed.every((item) => item.command === "podman"));
   }
 
+  // Workspace sync and backup/restore extras (CLI settings export/import) also go through podman
+  const backupId = "spaceapp-backup-20261016T000000000Z";
+  await mkdir(join(root, "backups", backupId), { recursive: true });
+  const workspaceFolder = await mkdtemp(join(tmpdir(), "spaceapp-podman-folder-"));
+  for (const [cmdArgs, input, action] of [
+    [["workspace", "add", workspaceFolder, "--read-only"], [], "syncWorkspaces"],
+    [["backup"], [], "exportCliSettings"],
+    [["restore"], ["RESTORE\n"], "importCliSettings"]
+  ]) {
+    executed.length = 0;
+    const code = await run(cmdArgs, { ...baseOptions, stdin: Readable.from(input) });
+    assert.equal(code, 0, `Expected ${cmdArgs.join(" ")} to succeed: ${stderr.value()}`);
+    const expected = composeCommand(action, root, { engine: "podman" }).args.slice(-3).join(" ");
+    assert.ok(
+      executed.some((item) => item.args.slice(-3).join(" ") === expected),
+      `Expected ${cmdArgs.join(" ")} to run ${action}`
+    );
+    assert.ok(
+      executed.every((item) => item.command === "podman"),
+      `Expected ${cmdArgs.join(" ")} to run only podman, got: ${executed.map((item) => item.command).join(", ")}`
+    );
+  }
+
   // Doctor reports podman engine, rootless, cgroup v2, and delegated CPU/memory
   const doctorOut = capture();
   const doctorCode = await run(["doctor"], { ...baseOptions, stdout: doctorOut.stream });
