@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable, Writable } from "node:stream";
@@ -14,6 +14,7 @@ import {
   renderWorkspaceCompose,
   resolveInstallEngine,
   saveConfig,
+  userSlug,
   validateConfig
 } from "../src/index.mjs";
 import {
@@ -691,6 +692,36 @@ test("CLI installs with --engine podman, dispatches podman across lifecycle comm
       `Expected ${cmdArgs.join(" ")} to run only podman, got: ${executed.map((item) => item.command).join(", ")}`
     );
   }
+
+  // A user's own restore (restoreUserState) imports their CLI settings and Space Memory through podman too
+  assert.equal(await run(["user", "enable"], baseOptions), 0);
+  assert.equal(await run(["user", "add", "user:Bob12345"], baseOptions), 0);
+  const slug = userSlug("user:Bob12345");
+  const userBackup = join(root, "backups", "spaceapp-backup-20261016T010000000Z");
+  await mkdir(join(userBackup, "users"), { recursive: true });
+  await writeFile(join(userBackup, "manifest.json"), "{}");
+  await writeFile(join(userBackup, "users", `${slug}-cli-config.tar.gz`), "settings");
+  await writeFile(join(userBackup, "users", `${slug}-memory.tar.gz`), "memory");
+  executed.length = 0;
+  assert.equal(await run(["user", "restore", "user:Bob12345"], baseOptions), 0, `stderr: ${stderr.value()}`);
+  const userConfig = await loadConfig(root);
+  for (const action of ["importCliSettings", "importMemory"]) {
+    const expected = composeCommand(action, root, {
+      profile: userConfig.profile,
+      companionsEnabled: userConfig.companionsEnabled,
+      service: `spaceapp-cli-${slug}`,
+      engine: "podman"
+    });
+    assert.equal(expected.command, "podman");
+    assert.ok(
+      executed.some((item) => item.command === "podman" && JSON.stringify(item.args) === JSON.stringify(expected.args)),
+      `Expected user restore to run ${action} through podman for spaceapp-cli-${slug}`
+    );
+  }
+  assert.ok(
+    executed.every((item) => item.command === "podman"),
+    `Expected user restore to run only podman, got: ${executed.map((item) => item.command).join(", ")}`
+  );
 
   // Doctor reports podman engine, rootless, cgroup v2, and delegated CPU/memory
   const doctorOut = capture();
