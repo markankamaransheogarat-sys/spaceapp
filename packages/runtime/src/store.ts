@@ -6544,7 +6544,7 @@ export class InMemorySpaceStore implements SpaceStore {
         throw new SpaceConflictError("CLI task revision does not belong to the selected logical task.");
       }
     }
-    const session = paneCliSessionSchema.parse({
+    const parsedSession = paneCliSessionSchema.parse({
       ...parsed,
       sessionId,
       modelId: parsed.modelId ?? null,
@@ -6560,6 +6560,13 @@ export class InMemorySpaceStore implements SpaceStore {
       updatedAt: parsed.updatedAt ?? timestamp,
       endedAt: null
     });
+    // Like the Postgres upsert (GREATEST): replaying a session with an older
+    // caller-supplied updatedAt must not move it back in time.
+    const previous = this.paneCliSessions.get(parsedSession.sessionId);
+    const session =
+      previous && Date.parse(previous.updatedAt) > Date.parse(parsedSession.updatedAt)
+        ? { ...parsedSession, updatedAt: previous.updatedAt }
+        : parsedSession;
     if (session.isActive) {
       for (const [sessionId, existing] of this.paneCliSessions.entries()) {
         if (existing.paneId === session.paneId && existing.sessionId !== session.sessionId && existing.isActive) {

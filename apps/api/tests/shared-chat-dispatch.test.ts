@@ -175,6 +175,18 @@ describe("pickSharedChatDispatchTarget", () => {
     expect(target!.session.sessionId).toBe(expectedSessionId);
   });
 
+  it("does not move a session back in time when it is upserted with an older updatedAt", async () => {
+    const store = new InMemorySpaceStore();
+    const { room, pane } = createIdleDeepseekPane(store, "Deepseek replay");
+    const sessionId = createRunningSession(store, room.id, pane.id, "cli:deepseek", "2026-08-15T10:00:00.000Z");
+    store.createPaneCliSession({
+      ...store.getPaneCliSession(sessionId)!,
+      updatedAt: "2026-08-15T09:00:00.000Z"
+    });
+
+    expect(store.getPaneCliSession(sessionId)!.updatedAt).toBe("2026-08-15T10:00:00.000Z");
+  });
+
   it("only considers the requested runtime", async () => {
     const store = new InMemorySpaceStore();
     const claude = createIdleDeepseekPane(store, "Claude pane");
