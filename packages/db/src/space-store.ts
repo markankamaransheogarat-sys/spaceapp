@@ -10379,7 +10379,9 @@ export class PostgresSpaceStore implements SpaceStore {
             status_reason = EXCLUDED.status_reason,
             exit_code = EXCLUDED.exit_code,
             is_active = EXCLUDED.is_active,
-            updated_at = EXCLUDED.updated_at,
+            -- A replayed upsert with an older caller-supplied updatedAt must
+            -- not move the session back in time.
+            updated_at = GREATEST(pane_cli_sessions.updated_at, EXCLUDED.updated_at),
             ended_at = EXCLUDED.ended_at
           RETURNING
             session_id AS "sessionId",
