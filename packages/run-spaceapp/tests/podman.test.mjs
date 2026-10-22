@@ -182,8 +182,15 @@ test("composeCommand builds podman compose invocations across all lifecycle acti
     ["logs", { lines: 100 }, ["logs", "--tail", "100"]],
     ["pull", {}, ["pull"]],
     ["syncCredentials", {}, ["up", "-d", "--no-deps", "--force-recreate", "spaceapp-cli"]],
-    ["backup", {}, ["exec", "-T", "--user", "0:0", "spaceapp-core", "node", "scripts/portable-backup.mjs"]],
+    ["backup", {}, [
+      "run", "--rm", "--no-deps", "--user", "0:0",
+      "--env", "SPACE_DATABASE_URL_FILE=/run/secrets/database-url",
+      "--entrypoint", "node", "spaceapp-core", "scripts/portable-backup.mjs"
+    ]],
+    ["pauseWriters", {}, ["pause", "spaceapp-core", "spaceapp-cli", "spaceapp-browser", "temporal"]],
+    ["unpauseWriters", {}, ["unpause", "spaceapp-core", "spaceapp-cli", "spaceapp-browser", "temporal"]],
     ["stopForRestore", {}, ["stop", "spaceapp-core", "spaceapp-cli", "spaceapp-browser"]],
+    ["stopForPortableRestore", {}, ["stop", "spaceapp-core", "spaceapp-cli", "spaceapp-browser", "temporal"]],
     ["restore", { backupId: "spaceapp-backup-20261016T120000000Z" }, [
       "run", "--rm", "--no-deps", "--user", "0:0",
       "--env", "SPACE_DATABASE_URL_FILE=/run/secrets/database-url",
