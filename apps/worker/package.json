@@ -10,6 +10,7 @@
     "start": "node dist/worker.js",
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
+    "pretest": "npm run build -w @space/contracts",
     "test": "vitest run"
   },
   "dependencies": {
