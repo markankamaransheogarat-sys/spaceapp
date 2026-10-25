@@ -9,9 +9,9 @@ const mebibyte = 1024 * 1024;
 
 test("public container size budgets preserve the lightweight release ceilings", () => {
   assert.deepEqual(containerImageSizeBudgets, {
-    core: 1150 * mebibyte,
-    browser: 1750 * mebibyte,
-    cli: 2800 * mebibyte
+    core: 850 * mebibyte,
+    browser: 1350 * mebibyte,
+    cli: 1000 * mebibyte
   });
 });
 
@@ -47,5 +47,14 @@ test("container size budget rejects unknown targets", () => {
   assert.throws(
     () => evaluateContainerImageSize({ target: "unknown", sizeBytes: 1 }),
     /Unknown container target/
+  );
+});
+
+import { prepareContainerTargets } from "../../deploy/docker/prepare-container-targets.mjs";
+
+test("prepareContainerTargets rejects unsupported target architectures", () => {
+  assert.throws(
+    () => prepareContainerTargets({ targetArch: "invalid" }),
+    /Unsupported target architecture "invalid"/
   );
 });
